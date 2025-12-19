@@ -1,0 +1,21 @@
+{
+  "name": "BEACON Admin Dashboard",
+  "short_name": "BEACON",
+  "description": "Admin dashboard for managing power outage reports.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007BFF",
+  "icons": [
+    {
+      "src": "images/beacon.jpeg", 
+      "sizes": "192x192", 
+      "type": "image/jpeg"  
+    },
+    {
+      "src": "images/beacon.jpeg", 
+      "sizes": "512x512", 
+      "type": "image/jpeg"  
+    }
+  ]
+}

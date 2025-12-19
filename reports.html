@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BEACON Reports</title>
+
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <link rel="manifest" href="manifest.json">
+
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#007BFF",
+            "background-light": "#F8F9FA",
+            "background-dark": "#1A202C",
+          },
+          fontFamily: {
+            display: ["Inter", "sans-serif"],
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+          },
+        },
+      },
+    };
+  </script>
+
+  <script>
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  </script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <style>
+    /* 1. Force the Sidebar to be a fixed width for tiles */
+    aside { width: 100px !important; }
+
+    /* 2. Override shared.js 'bg-primary' to make the Active Tile match the Content Background */
+    a.sidebar-link.bg-primary {
+      background-color: #F9FAFB !important; /* Matches bg-gray-50 */
+      color: #007BFF !important; /* Text becomes blue */
+      position: relative;
+      box-shadow: -5px 5px 15px rgba(0,0,0,0.05);
+      border-top-right-radius: 0 !important;
+      border-bottom-right-radius: 0 !important;
+      border-top-left-radius: 1rem !important;
+      border-bottom-left-radius: 1rem !important;
+      margin-right: -1px; /* Overlap border */
+      z-index: 50;
+    }
+
+    /* Dark mode override for Active Tile */
+    .dark a.sidebar-link.bg-primary {
+      background-color: #111827 !important; 
+      color: #60A5FA !important;
+      box-shadow: none;
+    }
+
+    /* 3. THE TRIANGLE FLAP */
+    a.sidebar-link.bg-primary::after {
+      content: '';
+      position: absolute;
+      right: -12px; 
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-left: 12px solid #F9FAFB;
+      z-index: 51;
+    }
+    
+    /* Dark mode triangle */
+    .dark a.sidebar-link.bg-primary::after {
+      border-left-color: #111827;
+    }
+
+    /* 4. Hide text in the tiles */
+    .sidebar-link span.ml-3 {
+      display: none; 
+    }
+    
+    /* 5. Tile Styling */
+    .sidebar-link {
+      justify-content: center;
+      flex-direction: column;
+      height: 80px; 
+      width: 80px;
+      margin: 0 auto 1rem auto; 
+      border-radius: 1rem; 
+      transition: all 0.3s ease;
+    }
+
+    /* Hide scrollbar */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Animation for Bulk Button */
+    @keyframes bounce-in {
+      0% { transform: scale(0); opacity: 0; }
+      60% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+    .animate-bounce-in {
+      animation: bounce-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 dark:bg-gray-900 font-display text-gray-800 dark:text-gray-200 overflow-hidden">
+
+  <div class="flex h-screen w-full">
+
+    <aside class="bg-slate-900 text-white flex flex-col shadow-2xl z-40 shrink-0 items-center py-6">
+      
+      <div class="mb-8">
+        <a href="index.html" class="block w-14 h-14 rounded-xl shadow-lg overflow-hidden hover:scale-105 transition-transform bg-transparent">
+          <img src="images/beacon.png" alt="BEACON Logo" class="w-full h-full object-cover block">
+        </a>
+      </div>
+
+      <nav class="flex-1 w-full px-2 space-y-4 overflow-y-auto no-scrollbar">
+        
+        <a href="index.html" class="sidebar-link flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">dashboard</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Dashboard</div>
+        </a>
+
+        <a href="reports.html" class="sidebar-link bg-primary flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">assessment</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Reports</div>
+        </a>
+
+        <a href="outages.html" class="sidebar-link flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">warning</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Outages</div>
+        </a>
+
+        <a href="map.html" class="sidebar-link flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">map</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Map View</div>
+        </a>
+
+        <a href="notifications.html" class="sidebar-link flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">notifications</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Notifications</div>
+        </a>
+
+        <a href="settings.html" class="sidebar-link flex items-center text-gray-400 hover:bg-white/10 hover:text-white relative group">
+          <span class="material-icons text-3xl">settings</span>
+          <div class="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-50">Settings</div>
+        </a>
+      </nav>
+
+      <div class="mt-auto mb-4 flex flex-col gap-4 items-center w-full border-t border-white/10 pt-6">
+        <div id="profileDropdownWrapper" class="relative">
+           <button id="profileTrigger" class="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-500 hover:border-white transition">
+               <img id="adminProfile" src="https://via.placeholder.com/40" alt="Admin" class="w-full h-full object-cover"/>
+           </button>
+           <div id="profileDropdown" class="hidden absolute left-14 bottom-0 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl z-50 p-2">
+               <a href="#" id="openProfileModalBtn" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 rounded">Profile</a>
+               <a href="login.html" id="logoutBtn" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/50 rounded">Logout</a>
+           </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50 dark:bg-gray-900 z-0">
+      
+      <header class="h-16 bg-transparent flex justify-between items-center px-8 py-4 shrink-0">
+         <h2 class="text-2xl font-bold text-gray-800 dark:text-white tracking-tight">
+           BEACON <span class="text-blue-600">Reports</span>
+         </h2>
+         
+         <div class="relative z-50 opacity-0 pointer-events-none"> 
+            <button id="dateDropdownBtn"></button>
+            <div id="calendarDropdown"></div>
+         </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto px-8 pb-8 scroll-smooth">
+
+        <div id="feederTiles" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-2">
+           </div>
+
+        <div id="reportsContainer" class="hidden mt-4 flex flex-col h-full">
+            
+            <div class="flex justify-between items-center mb-6">
+              <div class="flex items-center gap-4">
+                <button id="backBtn" class="w-10 h-10 flex items-center justify-center rounded-xl bg-white dark:bg-gray-800 text-gray-500 hover:text-blue-600 hover:bg-blue-50 shadow-sm transition border border-gray-200 dark:border-gray-700">
+                  <span class="material-icons">arrow_back</span>
+                </button>
+                <div>
+                  <h3 id="reportsTitle" class="text-xl font-bold text-gray-800 dark:text-white">Feeder Reports</h3>
+                  <p class="text-xs text-gray-500">Manage outage reports for this area</p>
+                </div>
+              </div>
+              
+              <button id="createAnnouncementBtn" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-green-500/30 transition flex items-center gap-2 font-medium text-sm">
+                <span class="material-icons text-sm">add</span> New Announcement
+              </button>
+            </div>
+            
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-t-2xl border-b dark:border-gray-700 flex flex-wrap justify-end items-center gap-4 shadow-sm">
+              <div class="flex flex-wrap gap-3 w-full sm:w-auto">
+                <div class="relative">
+                  <select id="statusFilter" class="appearance-none bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 pl-4 pr-10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    <option value="all">All Statuses</option>
+                    <option value="Reported">Reported</option>
+                    <option value="Ongoing">Ongoing</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <span class="material-icons text-gray-400 text-sm">expand_more</span>
+                  </div>
+                </div>
+                
+                <div class="relative">
+                  <select id="sortFilter" class="appearance-none bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 pl-4 pr-10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    <option value="id">Sort by ID</option>
+                    <option value="volume-high">Highest Volume</option>
+                    <option value="volume-low">Lowest Volume</option>
+                    <option value="with-pictures" id="sortWithPictures" class="hidden">With Pictures</option>
+                    <option value="with-coordinates" id="sortWithCoords" class="hidden">With Coordinates</option>
+                  </select>
+                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                     <span class="material-icons text-gray-400 text-sm">expand_more</span>
+                  </div>
+                </div>
+                
+                <div class="relative flex-grow sm:flex-grow-0">
+                  <input type="text" id="searchInput" placeholder="Search reports..." class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 pl-4 pr-10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-64 transition">
+                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <span class="material-icons text-gray-400 text-sm">search</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-white dark:bg-gray-800 rounded-b-2xl shadow-sm overflow-hidden border border-t-0 border-gray-100 dark:border-gray-700">
+              <div class="overflow-x-auto">
+                <table class="w-full">
+                  <thead class="bg-gray-50 dark:bg-gray-700/50">
+                    <tr id="reportsThead" class="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b dark:border-gray-700">
+                      </tr>
+                  </thead>
+                  <tbody id="reportsBody" class="divide-y divide-gray-100 dark:divide-gray-700 text-sm text-gray-600 dark:text-gray-300">
+                    </tbody>
+                </table>
+              </div>
+              
+              <div id="emptyState" class="hidden p-12 text-center">
+                <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                   <span class="material-icons text-gray-400 text-3xl">search_off</span>
+                </div>
+                <h3 class="text-gray-900 dark:text-white font-medium mb-1">No reports found</h3>
+                <p class="text-gray-500 dark:text-gray-400 text-sm">Try adjusting your filters or search query.</p>
+              </div>
+              
+              <div class="p-4 border-t dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  Showing <span id="showingCount" class="font-medium">0</span> of <span id="totalCount" class="font-medium">0</span>
+                </div>
+                <div class="flex space-x-2">
+                  <button id="prevPage" class="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    Previous
+                  </button>
+                  <button id="nextPage" class="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <button id="bulkUpdateBtn" class="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-blue-600/40 transition hidden z-50 flex items-center gap-3 animate-bounce-in">
+    <span class="material-icons">campaign</span>
+    <span class="font-bold">Announce Selected</span>
+  </button>
+
+  <div id="profileModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm hidden items-center justify-center z-[1001]">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 relative">
+      
+      <div class="flex justify-between items-center pb-4 border-b dark:border-gray-700">
+        <h3 class="text-xl font-bold text-gray-900 dark:text-white">Profile Settings</h3>
+        <button id="closeProfileModalBtn" class="text-gray-400 hover:text-gray-600 transition">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+
+      <form id="profileUpdateForm" class="mt-6 space-y-5 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
+        
+        <div class="flex flex-col items-center justify-center mb-6">
+            <div class="relative group">
+                <div class="w-28 h-28 rounded-full overflow-hidden border-4 border-gray-100 dark:border-gray-700 shadow-lg">
+                    <img id="modalProfilePreview" src="https://via.placeholder.com/150" alt="Profile" class="w-full h-full object-cover">
+                </div>
+                <label for="profilePictureInput" class="absolute bottom-1 right-1 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 shadow-md transition-transform transform hover:scale-105">
+                    <span class="material-icons text-sm">edit</span>
+                </label>
+                <input type="file" id="profilePictureInput" accept="image/*" class="hidden"/>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Click icon to change photo</p>
+        </div>
+
+        <div>
+           <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Email Address</label>
+           <input type="email" id="profileEmailInput" disabled class="w-full px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed select-none">
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">First Name</label>
+                <input type="text" id="firstNameInput" class="w-full px-4 py-3 rounded-xl border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition" placeholder="Juan">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Last Name</label>
+                <input type="text" id="lastNameInput" class="w-full px-4 py-3 rounded-xl border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition" placeholder="Dela Cruz">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Mobile Number</label>
+            <input type="text" id="mobileInput" class="w-full px-4 py-3 rounded-xl border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition" placeholder="0912 345 6789">
+        </div>
+
+        <div class="pt-4 border-t dark:border-gray-700">
+            <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-3">Change Password</h4>
+            <div class="space-y-3">
+                <input type="password" id="newPasswordInput" class="w-full px-4 py-3 rounded-xl border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition" placeholder="New Password (Optional)">
+                <input type="password" id="confirmPasswordInput" class="w-full px-4 py-3 rounded-xl border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white transition" placeholder="Confirm New Password">
+            </div>
+        </div>
+
+        <div class="pt-4 flex justify-end space-x-3">
+            <button type="button" id="cancelUpdateBtn" class="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 transition">Cancel</button>
+            <button type="submit" id="saveProfileBtn" class="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="scripts/supabase.js"></script>
+  <script src="scripts/shared.js"></script>
+  <script src="scripts/reports.js"></script>
+
+</body>
+</html>
