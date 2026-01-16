@@ -3,7 +3,7 @@
 // ==========================
 
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("Reports Page Script (V12 - Fixed Manual Flag) Loaded.");
+  console.log("Reports Page Script (V13 - Contact & Attach Update) Loaded.");
 
   // --- App State ---
   let allReports = []; // Will hold all reports from Supabase
@@ -23,7 +23,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const reportsThead = document.getElementById("reportsThead");
   const reportsTitle = document.getElementById("reportsTitle");
   const backBtn = document.getElementById("backBtn");
-  const createAnnouncementBtn = document.getElementById("createAnnouncementBtn"); // NEW: Plus Button
+  const createAnnouncementBtn = document.getElementById("createAnnouncementBtn"); 
+  const attachToAnnouncementBtn = document.getElementById("attachToAnnouncementBtn"); // NEW: The + Button
   const bulkUpdateBtn = document.getElementById("bulkUpdateBtn");
 
   const statusFilterEl = document.getElementById('statusFilter');
@@ -50,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const itemsPerPage = 12;
 
   // ===================================
-  // COORDINATES COPY FUNCTION
+  // COPY FUNCTIONS
   // ===================================
   function handleCopyCoords(e) {
     const btn = e.target.closest('.copy-coords-btn');
@@ -70,6 +71,27 @@ document.addEventListener("DOMContentLoaded", () => {
       }, 2000);
     }).catch(err => {
       console.error('Failed to copy coordinates:', err);
+    });
+  }
+
+  function handleCopyContact(e) {
+    const btn = e.target.closest('.copy-contact-btn');
+    if (!btn) return;
+
+    const number = btn.dataset.contact;
+    if (!number) return;
+
+    navigator.clipboard.writeText(number).then(() => {
+      window.showSuccessPopup("Number Copied!"); 
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = '<span class="material-icons text-sm text-green-600">check</span>';
+      setTimeout(() => {
+        if (btn && btn.parentNode) {
+            btn.innerHTML = originalHTML;
+        }
+      }, 2000);
+    }).catch(err => {
+      console.error('Failed to copy contact:', err);
     });
   }
 
@@ -118,6 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       // 1. Fetch from 'reports' and join related tables
+      // Added contact_number and contact_permission to selection
       const { data, error } = await supabase
         .from('reports')
         .select(`
@@ -292,6 +315,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.add('hidden');
     sortWithCoordsEl.classList.add('hidden');
+    
+    // Hide attach button in main view if not needed, or keep it.
+    // Usually attach makes sense when inside a feeder context, but keeping logical flow.
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.add('hidden');
+
     resetSelections();
   }
 
@@ -311,6 +339,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.add('hidden');
     sortWithCoordsEl.classList.add('hidden');
+    
+    // Show attach button in feeder view
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.remove('hidden');
 
     updateTableHeaders();
     applyFiltersAndRender();
@@ -330,6 +361,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.remove('hidden');
     sortWithCoordsEl.classList.remove('hidden');
+    
+    // Show attach button in individual view
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.remove('hidden');
 
     updateTableHeaders();
     applyFiltersAndRender();
@@ -462,6 +496,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <th class="${thClass}">Timestamp</th>
         <th class="${thClass}">Description</th>
         <th class="${thClass}">Status</th>
+        <th class="${thClass}">Contact</th> <!-- NEW COLUMN -->
         <th class="${thClass}">Image</th>
         <th class="${thClass}">Coordinates</th>
         <th class="${thClass}">Actions</th>
@@ -543,6 +578,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const hasImages = report.images && report.images.length > 0;
     const hasCoords = report.latitude && report.longitude;
     const coordsText = hasCoords ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : 'N/A';
+    
+    // Check permission and existence for contact info
+    const showContact = report.contact_permission && report.contact_number;
 
     return `
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -550,13 +588,25 @@ document.addEventListener("DOMContentLoaded", () => {
           <input type="checkbox" class="report-checkbox h-4 w-4 text-blue-600 rounded-full focus:ring-blue-500 border-gray-300"
                  data-id="${report.id}" ${isSelected ? 'checked' : ''}>
         </td>
-        <td class="py-3 px-4 font-medium">${report.id}</td>
+        <td class="py-3 px-4 font-medium">${report.id.substring(0, 8)}...</td>
         <td class="py-3 px-4">${reportDate}</td>
         <td class="py-3 px-4 truncate max-w-xs" title="${report.description}">${report.description}</td>
         <td class="py-3 px-4">
           <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor.tag}">
             ${report.status}
           </span>
+        </td>
+        <!-- NEW CONTACT COLUMN -->
+        <td class="py-3 px-4">
+          ${showContact ?
+            `<div class="flex items-center space-x-1">
+              <span title="${report.contact_number}">${report.contact_number}</span>
+              <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline copy-contact-btn" data-contact="${report.contact_number}">
+                <span class="material-icons text-sm">content_copy</span>
+              </button>
+            </div>` :
+            '<span class="text-gray-400 italic text-sm">N/A</span>'
+          }
         </td>
         <td class="py-3 px-4">
           ${hasImages ?
@@ -602,10 +652,14 @@ document.addEventListener("DOMContentLoaded", () => {
                        (item.coordinates && item.coordinates.toLowerCase().includes(search));
             }
             if (currentView === 'individuals') {
+                // Expanded search to include contact number if visible
+                const contactSearch = (item.contact_permission && item.contact_number) ? item.contact_number.includes(search) : false;
+                
                 return item.description.toLowerCase().includes(search) ||
                        String(item.id).includes(search) ||
                        (item.latitude && item.longitude &&
-                        `${item.latitude},${item.longitude}`.includes(search));
+                        `${item.latitude},${item.longitude}`.includes(search)) ||
+                        contactSearch;
             }
             return false;
         });
@@ -634,6 +688,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 return aHas && !bHas ? -1 : !aHas && bHas ? 1 : 0;
             });
             break;
+        // NEW FILTER OPTION
+        case 'with-contact': 
+             if (currentView === 'individuals') {
+                filteredData.sort((a, b) => {
+                    const aHas = a.contact_permission && a.contact_number;
+                    const bHas = b.contact_permission && b.contact_number;
+                    return bHas - aHas; // Sort true (has contact) before false
+                });
+             }
+             break;
     }
 
     if (!keepPage) currentPage = 1;
@@ -730,10 +794,239 @@ document.addEventListener("DOMContentLoaded", () => {
       selectAllCheckbox.indeterminate = selectedItems.size > 0 && !allVisibleChecked;
     }
 
-    bulkUpdateBtn.classList.toggle('hidden', selectedItems.size === 0);
+    const hasSelection = selectedItems.size > 0;
+    bulkUpdateBtn.classList.toggle('hidden', !hasSelection);
     bulkUpdateBtn.textContent = `Update Selected (${selectedItems.size})`;
+    
+    // Also toggle the Attach button style if needed (visual feedback)
+    if(attachToAnnouncementBtn) {
+        // attachToAnnouncementBtn.disabled = !hasSelection;
+        // Optional: Change style if no items are selected
+        if(!hasSelection) {
+            attachToAnnouncementBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            attachToAnnouncementBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
   }
     // ===================================
+  // ATTACH TO ANNOUNCEMENT FUNCTIONALITY (NEW)
+  // ===================================
+  
+  async function fetchRecentOutages(feederId) {
+      try {
+          // REVISION: Fetch from 'announcements' table
+          // Filter: Last 24 hours, matching feeder_id
+          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+          const { data, error } = await supabase
+              .from('announcements') // Changed from 'outages' to 'announcements'
+              .select('*')
+              .eq('feeder_id', feederId)
+              .gte('created_at', twentyFourHoursAgo) // Filter strictly for last 24 hours
+              .order('created_at', { ascending: false });
+              
+          if (error) throw error;
+          return data || [];
+      } catch (err) {
+          console.error("Error fetching announcements for attach:", err);
+          return [];
+      }
+  }
+
+  async function showAttachModal(feederId) {
+      const outages = await fetchRecentOutages(feederId);
+      
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      
+      let rowsHTML = '';
+      if (outages.length === 0) {
+          rowsHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No recent announcements found for Feeder ' + feederId + ' (Last 24h)</td></tr>';
+      } else {
+          rowsHTML = outages.map(outage => {
+            const date = new Date(outage.created_at).toLocaleString();
+            // Determine status color for badge
+            let badgeClass = "bg-gray-100 text-gray-800";
+            if(outage.status === 'Reported') badgeClass = "bg-red-100 text-red-800";
+            if(outage.status === 'Ongoing') badgeClass = "bg-blue-100 text-blue-800";
+            if(outage.status === 'Completed') badgeClass = "bg-green-100 text-green-800";
+
+            return `
+              <tr class="hover:bg-blue-50 cursor-pointer transition border-b border-gray-100 last:border-0 outage-row" data-id="${outage.id}">
+                  <td class="px-4 py-3">
+                      <input type="radio" name="selectedOutage" value="${outage.id}" class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                  </td>
+                  <td class="px-4 py-3 font-medium text-gray-900">${outage.cause || 'Unknown Cause'}</td>
+                  <td class="px-4 py-3 text-sm text-gray-600">${outage.location || 'N/A'}</td> <!-- NEW -->
+                  <td class="px-4 py-3 text-sm text-gray-600">Feeder ${outage.feeder_id || 'N/A'}</td> <!-- NEW -->
+                  <td class="px-4 py-3">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${badgeClass}">
+                        ${outage.status}
+                      </span>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-500">${date}</td>
+              </tr>
+            `;
+          }).join('');
+      }
+
+      modal.innerHTML = `
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl overflow-hidden transform transition-all">
+          <div class="flex justify-between items-center p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+            <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <span class="material-icons text-blue-500">link</span>
+                Attach to Announcement
+            </h3>
+            <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal">
+                <span class="material-icons">close</span>
+            </button>
+          </div>
+          
+          <div class="p-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select an existing announcement from the last 24 hours to attach the selected report(s) to.
+            </p>
+            
+            <div class="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                            <th class="w-8 px-4 py-2"></th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cause</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Feeder</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200">
+                        ${rowsHTML}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+          
+          <div class="flex justify-end gap-3 p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+            <button type="button" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 close-modal">
+                Cancel
+            </button>
+            <button type="button" id="confirmAttachBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                Attach Reports
+            </button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+
+      // --- Attach Logic Event Listeners ---
+      
+      // Close Modal
+      modal.querySelectorAll('.close-modal').forEach(b => b.addEventListener('click', () => modal.remove()));
+
+      // Row Click Selection
+      modal.querySelectorAll('.outage-row').forEach(row => {
+          row.addEventListener('click', (e) => {
+             // If clicked directly on radio, don't trigger row click (default behavior handles it)
+             if(e.target.type === 'radio') return;
+             
+             const radio = row.querySelector('input[type="radio"]');
+             if(radio) radio.checked = true;
+          });
+      });
+
+      // Confirm Attach
+      const confirmBtn = modal.querySelector('#confirmAttachBtn');
+      confirmBtn.addEventListener('click', async () => {
+          const selectedRadio = modal.querySelector('input[name="selectedOutage"]:checked');
+          
+          if(!selectedRadio) {
+              window.showErrorPopup ? window.showErrorPopup("Please select an announcement.") : alert("Please select an announcement.");
+              return;
+          }
+          
+          // RESOLVE IDs BASED ON VIEW
+          // This fixes the "invalid input syntax for type uuid" error when in Barangay view
+          let reportIdsToAttach = [];
+          
+          if (currentView === 'barangays') {
+             // selectedItems are Barangay Names (e.g., "Camp 7")
+             const selectedBarangays = Array.from(selectedItems);
+             
+             // Find all PENDING reports for these barangays in the current feeder
+             // Note: currentFeederId is available in scope
+             const reportsToAttach = allReports.filter(r => 
+                 r.feeder === currentFeederId && 
+                 r.status === 'PENDING' && 
+                 selectedBarangays.includes(r.barangay)
+             );
+             
+             if(reportsToAttach.length === 0) {
+                 alert("No pending reports found for selected barangays.");
+                 return;
+             }
+             reportIdsToAttach = reportsToAttach.map(r => r.id);
+             
+          } else {
+             // selectedItems are Report IDs (individuals view)
+             reportIdsToAttach = Array.from(selectedItems);
+          }
+
+          const announcementId = selectedRadio.value;
+          
+          confirmBtn.textContent = "Attaching...";
+          confirmBtn.disabled = true;
+          
+          try {
+             // 1. Fetch current announcement data to get existing report_ids
+             const { data: currentAnnouncement, error: fetchError } = await supabase
+                 .from('announcements')
+                 .select('report_ids')
+                 .eq('id', announcementId)
+                 .single();
+
+             if (fetchError) throw fetchError;
+
+             // 2. Merge existing IDs with new IDs (avoid duplicates)
+             const existingIds = currentAnnouncement.report_ids || [];
+             // Ensure uniqueness and valid type (assuming IDs are strings/UUIDs)
+             const updatedReportIds = [...new Set([...existingIds, ...reportIdsToAttach])];
+
+             // 3. Update the announcement
+             const { error: updateError } = await supabase
+                 .from('announcements')
+                 .update({ report_ids: updatedReportIds })
+                 .eq('id', announcementId);
+
+             if (updateError) throw updateError;
+
+             // 4. Update the actual reports to status 'Reported' so they are cleared from Pending view
+             // This is required to remove them from the "Pending Reports" list
+             const { error: reportUpdateError } = await supabase
+                 .from('reports')
+                 .update({ 
+                     status: 'Reported' 
+                 })
+                 .in('id', reportIdsToAttach);
+                 
+             if(reportUpdateError) throw reportUpdateError;
+             
+             window.showSuccessPopup ? window.showSuccessPopup("Reports successfully attached!") : alert("Reports Attached!");
+             modal.remove();
+             refreshCurrentView(); // Reload list
+             
+          } catch (err) {
+              console.error("Attach failed:", err);
+              window.showErrorPopup ? window.showErrorPopup("Failed to attach reports: " + err.message) : alert("Failed: " + err.message);
+              confirmBtn.textContent = "Attach Reports";
+              confirmBtn.disabled = false;
+          }
+      });
+  }
+
+
+  // ===================================
   // MODAL INTEGRATION WITH UNIFIED SYSTEM
   // ===================================
 
@@ -771,7 +1064,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.innerHTML = `
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div class="flex justify-between items-center p-6 border-b dark:border-gray-700">
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Report Details #${report.id}</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Report Details #${report.id.substring(0,8)}</h3>
           <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal"><span class="material-icons">close</span></button>
         </div>
         <div class="p-6 space-y-4 overflow-y-auto">
@@ -780,6 +1073,12 @@ document.addEventListener("DOMContentLoaded", () => {
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${STATUS_COLORS[report.status].tag}">${report.status}</span></div>
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Volume</label><p class="text-lg text-gray-900 dark:text-white">${report.volume || 'N/A'}</p></div>
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Cause</label><p class="text-lg text-gray-900 dark:text-white">${report.cause || 'Undetermined'}</p></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact</label><p class="text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                ${(report.contact_permission && report.contact_number) 
+                    ? `<span>${report.contact_number}</span> 
+                       <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline copy-contact-btn" data-contact="${report.contact_number}"><span class="material-icons text-sm">content_copy</span></button>` 
+                    : '<span class="text-gray-400 italic text-sm">Not Available/Hidden</span>'}
+            </p></div>
           </div>
           <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label><p class="text-gray-900 dark:text-white mt-1">${report.description || 'No description provided'}</p></div>
           <div>
@@ -813,6 +1112,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
     modal.querySelectorAll('.copy-coords-btn').forEach(btn => btn.addEventListener('click', handleCopyCoords));
+    modal.querySelectorAll('.copy-contact-btn').forEach(btn => btn.addEventListener('click', handleCopyContact));
     
     // FIXED: Only add click listeners to images that actually loaded
     modal.querySelectorAll('.view-popup-image').forEach((img, idx) => {
@@ -913,14 +1213,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- NEW EVENT LISTENER FOR ANNOUNCEMENT BUTTON ---
     // Opens the unified modal without selecting specific reports (empty array)
-    createAnnouncementBtn.addEventListener("click", () => {
-      window.showUpdateModal([], 'reports', {
-          currentView: currentView,
-          currentFeederId: currentFeederId,
-          currentBarangay: currentBarangay,
-          manualCreation: true // ✅ FIXED: This flag was missing, preventing the modal from opening
-      });
-    });
+    if(createAnnouncementBtn) {
+        createAnnouncementBtn.addEventListener("click", () => {
+          window.showUpdateModal([], 'reports', {
+              currentView: currentView,
+              currentFeederId: currentFeederId,
+              currentBarangay: currentBarangay,
+              manualCreation: true 
+          });
+        });
+    }
+
+    // --- NEW LISTENER FOR ATTACH BUTTON ---
+    if(attachToAnnouncementBtn) {
+        attachToAnnouncementBtn.addEventListener("click", () => {
+            if(selectedItems.size === 0) {
+                // Better UI feedback
+                alert("Please select at least one pending report to attach.");
+                return;
+            }
+            if(!currentFeederId) {
+                alert("Please select a feeder first.");
+                return;
+            }
+            showAttachModal(currentFeederId);
+        });
+    }
 
     // Updated bulk update to use unified modal system
     bulkUpdateBtn.addEventListener('click', () => {
@@ -942,6 +1260,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (btn.classList.contains('copy-coords-btn')) {
           handleCopyCoords(e);
+          return;
+      }
+      
+      if (btn.classList.contains('copy-contact-btn')) {
+          handleCopyContact(e);
           return;
       }
 

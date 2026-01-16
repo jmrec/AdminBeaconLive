@@ -1,4 +1,4 @@
-// DASHBOARD.JS - Final Fixes: Date Range Filter, Centered Logo, Safe Recommendations, Robust Heatmap
+// DASHBOARD.JS - Final Fixes: Root Cause Sentiment Analysis & Robust Reporting
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- Global State ---
@@ -13,7 +13,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let rootCauseInstance = null;
   let barangayImpactInstance = null;
   let peakTimeInstance = null;
-  let mttrTrendInstance = null;
+  // REMOVED: let mttrTrendInstance = null; // Replaced by Sentiment HTML
+
+  // NEW: Store sentiment data for PDF generation since it is not a canvas chart
+  let sentimentDataForPDF = [];
 
   // Forecast chart instances
   let feederForecastInstance = null;
@@ -81,7 +84,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       // 1. Fetch PENDING reports (The unaddressed ones from 'reports' table)
-      // FIX: Expanded status check to ensure all "new/pending" variations are caught
       if (heatFilter === "pending" || heatFilter === "all") {
         let reportsQuery = supabase
           .from("reports")
@@ -515,208 +517,218 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 4. ADVANCED ANALYTICS
+  // 4. ADVANCED ANALYTICS (Fixed: Sentiment Analysis Replaces MTTR)
   async function loadAdvancedAnalytics() {
+    // 1. Get Contexts for the Standard Charts
     const rootCtx = document.getElementById("rootCauseChart");
     const brgyCtx = document.getElementById("barangayImpactChart");
     const peakCtx = document.getElementById("peakTimeChart");
-    const mttrCtx = document.getElementById("mttrTrendChart");
 
-    if (!rootCtx || !brgyCtx || !peakCtx || !mttrCtx) return;
+    // 2. Safety Check: Only stop if the *remaining* standard charts are missing
+    if (!rootCtx || !brgyCtx || !peakCtx) return;
 
     const isDark = document.documentElement.classList.contains("dark");
     const textColor = isDark ? "#e5e7eb" : "#374151";
 
+    // 3. Fetch Data for Charts A, B, C (Announcements)
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
     const { data: allAnnouncements, error } = await supabase
-      .from("announcements")
-      .select("cause, areas_affected, created_at, restored_at, status, feeder_id, feeders(name)")
-      .gte("created_at", sDate)
-      .lte("created_at", eDate)
-      .order("created_at", { ascending: true });
+        .from("announcements")
+        .select("cause, areas_affected, created_at, feeders(name), restored_at")
+        .gte("created_at", sDate)
+        .lte("created_at", eDate)
+        .order("created_at", { ascending: true });
 
     if (error || !allAnnouncements) return;
 
-    // --- A. Root Cause ---
+    // --- A. Root Cause Frequency (Bar Chart) ---
     const causeCounts = {};
     allAnnouncements.forEach((a) => {
-      const c = a.cause || "Unknown";
-      causeCounts[c] = (causeCounts[c] || 0) + 1;
+        const c = a.cause || "Unknown";
+        causeCounts[c] = (causeCounts[c] || 0) + 1;
     });
     const sortedCauses = Object.entries(causeCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
 
     if (rootCauseInstance) rootCauseInstance.destroy();
     rootCauseInstance = new Chart(rootCtx, {
-      type: "bar",
-      data: {
-        labels: sortedCauses.map((i) => i[0]),
-        datasets: [
-          {
-            label: "Incidents",
-            data: sortedCauses.map((i) => i[1]),
-            backgroundColor: "#F59E0B",
-            borderRadius: 4,
-          },
-        ],
-      },
-      options: {
-        indexAxis: "y",
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
+        type: "bar",
+        data: {
+            labels: sortedCauses.map((i) => i[0]),
+            datasets: [{
+                label: "Incidents",
+                data: sortedCauses.map((i) => i[1]),
+                backgroundColor: "#F59E0B",
+                borderRadius: 4,
+            }],
         },
-      },
+        options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: textColor } },
+                y: { ticks: { color: textColor } },
+            },
+        },
     });
 
-    // --- B. Barangay Impact ---
+    // --- B. Barangay Impact (Bar Chart) ---
     const brgyCounts = {};
     allAnnouncements.forEach((a) => {
-      if (Array.isArray(a.areas_affected)) {
-        a.areas_affected.forEach((b) => {
-          brgyCounts[b] = (brgyCounts[b] || 0) + 1;
-        });
-      }
+        if (Array.isArray(a.areas_affected)) {
+            a.areas_affected.forEach((b) => {
+                brgyCounts[b] = (brgyCounts[b] || 0) + 1;
+            });
+        }
     });
 
     const sortedBrgys = Object.entries(brgyCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8);
 
     if (barangayImpactInstance) barangayImpactInstance.destroy();
     barangayImpactInstance = new Chart(brgyCtx, {
-      type: "bar",
-      data: {
-        labels: sortedBrgys.map((i) => i[0]),
-        datasets: [
-          {
-            label: "Outage Events",
-            data: sortedBrgys.map((i) => i[1]),
-            backgroundColor: "#EF4444",
-            borderRadius: 4,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
+        type: "bar",
+        data: {
+            labels: sortedBrgys.map((i) => i[0]),
+            datasets: [{
+                label: "Outage Events",
+                data: sortedBrgys.map((i) => i[1]),
+                backgroundColor: "#EF4444",
+                borderRadius: 4,
+            }],
         },
-      },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: textColor } },
+                y: { ticks: { color: textColor } },
+            },
+        },
     });
 
-    // --- C. Peak Time ---
+    // --- C. Peak Time (Bubble Chart) ---
     const timeMatrix = {};
     allAnnouncements.forEach((a) => {
-      const date = new Date(a.created_at);
-      const key = `${date.getDay()}-${date.getHours()}`;
-      timeMatrix[key] = (timeMatrix[key] || 0) + 1;
+        const date = new Date(a.created_at);
+        const key = `${date.getDay()}-${date.getHours()}`;
+        timeMatrix[key] = (timeMatrix[key] || 0) + 1;
     });
 
     const bubbleData = Object.entries(timeMatrix).map(([key, count]) => {
-      const [day, hour] = key.split("-").map(Number);
-      return {
-        x: hour,
-        y: day,
-        r: Math.min(count * 2, 20),
-      };
+        const [day, hour] = key.split("-").map(Number);
+        return {
+            x: hour,
+            y: day,
+            r: Math.min(count * 2, 20),
+        };
     });
 
     if (peakTimeInstance) peakTimeInstance.destroy();
     peakTimeInstance = new Chart(peakCtx, {
-      type: "bubble",
-      data: {
-        datasets: [
-          {
-            label: "Outage Frequency",
-            data: bubbleData,
-            backgroundColor: "rgba(59, 130, 246, 0.6)",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            min: 0,
-            max: 24,
-            title: {
-              display: true,
-              text: "Hour of Day (24h)",
-              color: textColor,
-            },
-            ticks: { color: textColor },
-          },
-          y: {
-            min: -1,
-            max: 7,
-            ticks: {
-              callback: (v) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][v] || "",
-              color: textColor,
-            },
-          },
+        type: "bubble",
+        data: {
+            datasets: [{
+                label: "Outage Frequency",
+                data: bubbleData,
+                backgroundColor: "rgba(59, 130, 246, 0.6)",
+            }],
         },
-        plugins: { legend: { display: false } },
-      },
-    });
-
-    // --- D. MTTR ---
-    const mttrByMonth = {};
-    allAnnouncements.forEach((a) => {
-      if (a.restored_at && a.created_at) {
-        const date = new Date(a.created_at);
-        const monthKey = `${date.getFullYear()}-${String(
-          date.getMonth() + 1
-        ).padStart(2, "0")}`;
-        const hrs = (new Date(a.restored_at) - date) / 36e5;
-        if (hrs < 0 || !Number.isFinite(hrs)) return;
-        if (!mttrByMonth[monthKey]) mttrByMonth[monthKey] = { total: 0, count: 0 };
-        mttrByMonth[monthKey].total += hrs;
-        mttrByMonth[monthKey].count += 1;
-      }
-    });
-
-    const sortedMonths = Object.keys(mttrByMonth).sort();
-    const mttrValues = sortedMonths.map((m) =>
-      (mttrByMonth[m].total / mttrByMonth[m].count).toFixed(2)
-    );
-
-    if (mttrTrendInstance) mttrTrendInstance.destroy();
-    mttrTrendInstance = new Chart(mttrCtx, {
-      type: "line",
-      data: {
-        labels: sortedMonths,
-        datasets: [
-          {
-            label: "Avg Repair Time (Hrs)",
-            data: mttrValues,
-            borderColor: "#10B981",
-            tension: 0.3,
-            fill: true,
-            backgroundColor: "rgba(16, 185, 129, 0.1)",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    min: 0, max: 24,
+                    title: { display: true, text: "Hour of Day (24h)", color: textColor },
+                    ticks: { color: textColor },
+                },
+                y: {
+                    min: -1, max: 7,
+                    ticks: {
+                        callback: (v) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][v] || "",
+                        color: textColor,
+                    },
+                },
+            },
+            plugins: { legend: { display: false } },
         },
-      },
     });
+
+    // --- D. NEW: Root Cause Sentiment (The replacement for MTTR) ---
+    // This targets the new <div> added to the HTML
+    const sentimentContainer = document.getElementById("root-cause-chart-container");
+    
+    if (sentimentContainer) {
+        try {
+            // Fetch User Reports (Reports contain sentiment, Announcements do not)
+            const { data: reportData, error: reportError } = await supabase
+                .from('reports')
+                .select('cause, sentiment_score')
+                .not('sentiment_score', 'is', null) // Only get scored reports
+                .limit(100);
+
+            if (reportError) throw reportError;
+
+            if (!reportData || reportData.length === 0) {
+                sentimentContainer.innerHTML = `<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#888;font-size:0.8rem;">No sentiment data available</div>`;
+            } else {
+                // 1. Group & Calculate Average
+                const groups = {}; 
+                reportData.forEach(r => {
+                    const cause = r.cause || 'Other';
+                    if (!groups[cause]) groups[cause] = { total: 0, count: 0 };
+                    groups[cause].total += r.sentiment_score;
+                    groups[cause].count += 1;
+                });
+
+                // 2. Sort by Negativity (Lowest score first)
+                const sortedSentiment = Object.keys(groups).map(cause => {
+                    const avg = groups[cause].total / groups[cause].count;
+                    return { cause, score: avg };
+                }).sort((a, b) => a.score - b.score);
+
+                // STORE FOR PDF GENERATION
+                sentimentDataForPDF = sortedSentiment;
+
+                // 3. Render HTML Bars
+                let html = `<div style="display:flex; flex-direction:column; gap:12px; padding-bottom:10px;">`;
+                
+                sortedSentiment.forEach(item => {
+                    const severity = Math.abs(Math.min(item.score, 0)); 
+                    const width = Math.min((severity / 10) * 100, 100); 
+                    
+                    let color = '#2ecc71'; // Green (Neutral)
+                    if (item.score <= -5) color = '#e74c3c'; // Red (Critical)
+                    else if (item.score < 0) color = '#f1c40f'; // Yellow (Negative)
+
+                    html += `
+                        <div style="width:100%;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:4px; color:${textColor}; font-weight:600;">
+                                <span>${item.cause}</span>
+                                <span style="color:${color}">${item.score.toFixed(1)}</span>
+                            </div>
+                            <div style="width:100%; background:#e5e7eb; height:6px; border-radius:3px; overflow:hidden;">
+                                <div style="width:${width}%; background:${color}; height:100%;"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+                sentimentContainer.innerHTML = html;
+            }
+        } catch (err) {
+            console.warn("Sentiment loading failed:", err);
+            sentimentContainer.innerHTML = `<div style="color:#aaa; font-size:0.8rem; text-align:center; padding-top:20px;">Analysis unavailable</div>`;
+        }
+    }
 
     await buildForecasts(allAnnouncements);
   }
@@ -1232,12 +1244,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function generateAnalysis(type, chartInstance) {
     // 1. Safety Check: If chart doesn't exist or data is empty, return generic message.
-    if (!chartInstance || 
+    if (!chartInstance) {
+        return "Insufficient data for detailed analysis.";
+    }
+
+    // Special Case: Sentiment (Uses raw data array)
+    if (type === "sentiment") {
+      const data = chartInstance; // In this case, instance is the data array
+      if (!data || data.length === 0) return "No sentiment data available.";
+      
+      const worst = data[0]; // Sorted ascending (negatives first), so index 0 is most negative
+      
+      let analysis = `Analysis: Public sentiment varies across categories. `;
+      
+      if (worst.score < -2) {
+        analysis += `CRITICAL: "${worst.cause}" is generating significant negative feedback (Score: ${worst.score.toFixed(1)}). Users are highly frustrated. `;
+        analysis += `Recommendation: Prioritize communication and faster response times for ${worst.cause} issues immediately. `;
+      } else if (worst.score < 0) {
+        analysis += `"${worst.cause}" is showing mild negative sentiment. `;
+      } else {
+        analysis += `Overall sentiment is neutral or positive. `;
+      }
+
+      return analysis;
+    }
+
+    // Standard Charts (Chart.js instance)
+    if (
         !chartInstance.data || 
         !chartInstance.data.datasets || 
         !chartInstance.data.datasets[0] || 
         !chartInstance.data.datasets[0].data ||
-        chartInstance.data.datasets[0].data.length === 0) {
+        chartInstance.data.datasets[0].data.length === 0
+    ) {
       return "Insufficient data for detailed analysis.";
     }
 
@@ -1322,8 +1361,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return `${top.name} is the most frequently affected community. Engage with community leaders regarding upcoming improvements.`;
     }
 
-    
-
     if (type === "feederForecast") {
       if (!top) return "Forecast: Risk data inconclusive.";
       return `Forecast: ${top.name} has the highest estimated probability of experiencing an outage in the next 7 days. Consider proactive inspection.`;
@@ -1402,7 +1439,7 @@ document.addEventListener("DOMContentLoaded", () => {
     doc.setTextColor(100);
     doc.setFont("helvetica", "normal");
     doc.text(
-      `Generated by: ${adminEmail} | Range: ${rangeStartInput.value} to ${rangeEndInput.value}`,
+      `Generated by: ${adminEmail} | Period: ${rangeStartInput.value} to ${rangeEndInput.value}`,
       pageWidth / 2,
       yPos,
       { align: "center" }
@@ -1496,7 +1533,8 @@ document.addEventListener("DOMContentLoaded", () => {
       { title: "4. Root Cause Analysis", instance: rootCauseInstance, type: "rootCause" },
       { title: "5. Most Affected Barangays", instance: barangayImpactInstance, type: "barangay" },
       { title: "6. Peak Outage Times", instance: peakTimeInstance, type: "peak" },
-      { title: "7. Monthly Efficiency Trend (MTTR)", instance: mttrTrendInstance, type: "mttr" },
+      // REPLACED MTTR WITH SENTIMENT
+      { title: "7. Root Cause Sentiment Analysis", instance: sentimentDataForPDF, type: "sentiment" },
       { title: "8. Feeder Risk Forecast (Next 7 Days)", instance: feederForecastInstance, type: "feederForecast" },
       { title: "9. Barangay Risk Forecast (Next 7 Days)", instance: barangayForecastInstance, type: "barangayForecast" },
       { title: "10. Restoration Likelihood", instance: restorationForecastInstance, type: "restorationForecast" },
@@ -1504,6 +1542,80 @@ document.addEventListener("DOMContentLoaded", () => {
 
     doc.setTextColor(0);
     allCharts.forEach((item) => {
+      // --- A. SPECIAL HANDLING: SENTIMENT (Custom Drawing) ---
+      if (item.type === "sentiment") {
+        if (!item.instance || item.instance.length === 0) return;
+
+        // Check page break (Sentiment block varies in height, estimate ~80-100 units)
+        if (yPos + 80 > pageHeight - 20) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text(item.title, margin, yPos);
+        yPos += 10;
+
+        // Draw Bars manually
+        item.instance.forEach((stat) => {
+          // 1. Cause Label
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(60);
+          doc.text(stat.cause, margin, yPos);
+
+          // 2. Score Label
+          const scoreText = stat.score.toFixed(1);
+          let r=46, g=204, b=113; // Green
+          if (stat.score <= -5) { r=231; g=76; b=60; } // Red
+          else if (stat.score < 0) { r=241; g=196; b=15; } // Yellow
+
+          doc.setTextColor(r, g, b);
+          doc.text(scoreText, pageWidth - margin - 5, yPos, { align: 'right' });
+          yPos += 3;
+
+          // 3. Bar Background
+          doc.setFillColor(229, 231, 235); // gray-200
+          doc.rect(margin, yPos, pageWidth - margin*2, 4, 'F');
+
+          // 4. Bar Foreground (Visualizing Magnitude of Negativity/Positivity)
+          // To match HTML: width based on severity (abs value)
+          const severity = Math.abs(stat.score);
+          const pct = Math.min(severity / 10, 1); // Cap at 10
+          const barWidth = (pageWidth - margin*2) * pct;
+
+          if (barWidth > 0) {
+            doc.setFillColor(r, g, b);
+            doc.rect(margin, yPos, barWidth, 4, 'F');
+          }
+          yPos += 8; // Spacing for next item
+        });
+
+        yPos += 5;
+
+        // Analysis Box
+        doc.setFillColor(240, 248, 255);
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(margin, yPos, pageWidth - margin * 2, 20, "DF");
+        
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(60);
+        
+        const analysisText = generateAnalysis(item.type, item.instance);
+        const splitText = doc.splitTextToSize(
+          analysisText,
+          pageWidth - margin * 2 - 10
+        );
+        doc.text(splitText, margin + 5, yPos + 7);
+        
+        doc.setTextColor(0);
+        yPos += 30;
+        return; // Continue to next chart
+      }
+
+      // --- B. STANDARD CHART.JS CANVAS HANDLING ---
       // Skip chart if instance doesn't exist or data is empty
       if (!item.instance || !item.instance.data || !item.instance.data.datasets || !item.instance.data.datasets.length) {
           return;
