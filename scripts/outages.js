@@ -1,3 +1,5 @@
+//@flow
+
 // ==========================================
 // OUTAGES.JS - Fixed (v11 - Multi-Image Gallery)
 // ==========================================
@@ -6,8 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("Outages Page Script Loaded (v11 - Gallery Fix)");
 
   // --- Global State ---
-  let allOutages = [];
-  let selectedFeeders = new Set(); 
+  let allOutages: Array<Object> = [];
+  let selectedFeeders: Set<string> = new Set(); 
 
   // --- Elements ---
   const originalContainer = document.getElementById("outagesContainer");

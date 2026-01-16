@@ -1,0 +1,30 @@
+{
+  "name": "admin_beacon",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "babel scripts/ -d dist/scripts/",
+    "flow": "flow",
+    "lint": "eslint ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.15.0",
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.28.6",
+    "@babel/preset-flow": "^7.27.1",
+    "babel-plugin-syntax-hermes-parser": "^0.33.3",
+    "eslint": "^9.39.2",
+    "eslint-plugin-ft-flow": "^3.0.11",
+    "eslint-plugin-jsdoc": "^62.0.0",
+    "flow-bin": "^0.296.1",
+    "hermes-eslint": "^0.33.3"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.2",
+    "globals": "^17.0.0"
+  }
+}

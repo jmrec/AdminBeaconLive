@@ -1,3 +1,5 @@
+//@flow
+
 // ==========================
 // SHARED SCRIPT (v12 - Restored Original Logic + Fixed Profile Only)
 // ==========================
@@ -91,7 +93,7 @@ document.addEventListener("click", (e) => {
  * Unified function to show update modal for both Reports and Outages
  * @param {Array} itemIds - Array of item IDs to update
  * @param {string} context - 'reports' or 'outages'
- * @param {Object} options - Additional options like currentFeederId, currentBarangay, manualCreation
+ * @param {object} options - Additional options like currentFeederId, currentBarangay, manualCreation
  */
 window.showUpdateModal = async function(itemIds, context, options = {}) {
   

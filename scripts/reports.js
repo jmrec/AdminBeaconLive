@@ -1,3 +1,5 @@
+//@flow
+
 // ==========================
 // REPORTS PAGE SCRIPT - Ready connect sa backend
 // ==========================

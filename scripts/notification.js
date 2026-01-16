@@ -1,3 +1,4 @@
+//@flow
 // NOTIFICATIONS.JS - Handles the Notification Feed UI
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -47,7 +48,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateUnreadCount();
   }
 
-  function renderList(notifications) {
+  function renderList(notifications: Array<Object>) {
     feedContainer.innerHTML = "";
 
     if (!notifications || notifications.length === 0) {
@@ -136,7 +137,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // --- 2. Actions ---
   
-  async function markAsRead(id) {
+  async function markAsRead(id: string) {
     const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
@@ -198,7 +199,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  function toggleFilterStyles(activeBtn, inactiveBtn) {
+  function toggleFilterStyles(activeBtn: HTMLElement, inactiveBtn: HTMLElement) {
     activeBtn.classList.remove('bg-white', 'dark:bg-gray-700', 'text-gray-500', 'hover:bg-gray-200/50');
     activeBtn.classList.add('bg-white', 'dark:bg-gray-700', 'shadow', 'text-blue-600', 'dark:text-blue-400');
     
@@ -229,20 +230,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (notificationsChannel) supabase.removeChannel(notificationsChannel);
   });
 
-  // Helper: Time Ago
-  function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - date) / 1000);
-    let interval = seconds / 31536000;
-    if (interval > 1) return Math.floor(interval) + "y ago";
-    interval = seconds / 2592000;
-    if (interval > 1) return Math.floor(interval) + "mo ago";
-    interval = seconds / 86400;
-    if (interval > 1) return Math.floor(interval) + "d ago";
-    interval = seconds / 3600;
-    if (interval > 1) return Math.floor(interval) + "h ago";
-    interval = seconds / 60;
-    if (interval > 1) return Math.floor(interval) + "m ago";
-    return "just now";
-  }
-
+  function getTimeAgo(date: Date): string {
+        const now = new Date().getTime();
+        const then = date.getTime();
+        
+        const seconds = Math.floor((now - then) / 1000);
+        
+        let interval = seconds / 31536000;
+        if (interval > 1) return Math.floor(interval) + "y ago";
+        
+        interval = seconds / 2592000;
+        if (interval > 1) return Math.floor(interval) + "mo ago";
+        
+        interval = seconds / 86400;
+        if (interval > 1) return Math.floor(interval) + "d ago";
+        
+        interval = seconds / 3600;
+        if (interval > 1) return Math.floor(interval) + "h ago";
+        
+        interval = seconds / 60;
+        if (interval > 1) return Math.floor(interval) + "m ago";
+        
+        return "just now";
+    }
 });

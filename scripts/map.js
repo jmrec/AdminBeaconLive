@@ -1,10 +1,12 @@
+//@flow
+
 // ==========================
 // MAP PAGE SCRIPT 
 // ==========================
 // Loaded LAST only on map.html
 
 // --- Custom Material Icons using L.DivIcon ---
-function createMaterialIconHTML(iconName, color) {
+function createMaterialIconHTML(iconName: string, color: string) {
     return `<span class="material-icons" style="color: ${color}; font-size: 36px;">${iconName}</span>`;
 }
 
@@ -49,7 +51,7 @@ const blackMaterialIcon = L.divIcon({
 });
 
 // Helper function to choose the DivIcon based on status
-function getIconForStatus(status) {
+function getIconForStatus(status: string) {
     switch (status) {
         case 'No Problem':
             return greenMaterialIcon;
@@ -85,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===================================
 
     // Para di overlap markers with same coordinates
-    function jitterCoordinate(value) {
+    function jitterCoordinate(value: number): number {
         const offset = (Math.random() - 0.5) * 0.0005;
         // adjust 0.0005 if too near/far (0.0003 = closer, 0.001 = farther)
         return value + offset;
@@ -108,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     style: (feature) => {
                         const status = feature.properties?.status || "Unknown";
 
-                        function getColorForStatus(status) {
+                        function getColorForStatus(status: string): string {
                             switch (status) {
                                 case "No Problem":
                                     return "green";

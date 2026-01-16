@@ -1,58 +1,85 @@
-// DASHBOARD.JS - Final Fixes: Date Range Filter, Centered Logo, Safe Recommendations, Robust Heatmap
+//@flow
+/** @typedef {import('chart.js').Chart} Chart */
+/** @typedef {import('leaflet')} L */
+
+/* global Chart, L, supabase, jspdf */
+
+/**
+ * @file DASHBOARD.JS
+ * @description Core dashboard logic for Project Beacon. Handles real-time outage heatmaps,
+ * statistical analysis via Chart.js, predictive risk forecasting, and PDF reporting.
+ */
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- Global State ---
-  // Default: Past 30 days
+  
+  /** @type {Date} The current start date for dashboard filtering (Default: 30 days ago) */
   let currentEndDate = new Date();
+  /** @type {Date} The current end date for dashboard filtering (Default: Today) */
   let currentStartDate = new Date();
   currentStartDate.setDate(currentEndDate.getDate() - 30);
 
   // --- Global Chart Instances ---
+  /** @type {Chart|null} Instance for the Feeder distribution pie chart */
   let feederChartInstance = null;
+  /** @type {Chart|null} Instance for the Restoration time bar chart */
   let restorationChartInstance = null;
+  /** @type {Chart|null} Instance for the Root Cause horizontal bar chart */
   let rootCauseInstance = null;
+  /** @type {Chart|null} Instance for the Barangay impact bar chart */
   let barangayImpactInstance = null;
+  /** @type {Chart|null} Instance for the Peak time bubble chart */
   let peakTimeInstance = null;
+  /** @type {Chart|null} Instance for the MTTR trend line chart */
   let mttrTrendInstance = null;
 
   // Forecast chart instances
+  /** @type {Chart|null} Instance for the Feeder forecast chart */
   let feederForecastInstance = null;
+  /** @type {Chart|null} Instance for the Barangay forecast chart */
   let barangayForecastInstance = null;
+  /** @type {Chart|null} Instance for the Restoration forecast chart */
   let restorationForecastInstance = null;
 
   // --- DOM Elements ---
-  const pieCanvas = document.getElementById("feederChartCanvas");
-  const barCanvas = document.getElementById("restorationChartCanvas");
-  const reportsTableBody = document.getElementById("reportsBody");
+  const pieCanvas: ?HTMLCanvasElement = document.getElementById("feederChartCanvas");
+  const barCanvas: ?HTMLCanvasElement = document.getElementById("restorationChartCanvas");
+  const reportsTableBody: ?HTMLElement = document.getElementById("reportsBody");
 
   // Forecast DOM
-  const feederForecastSummary = document.getElementById("feederForecastSummary");
-  const barangayForecastSummary = document.getElementById("barangayForecastSummary");
-  const restorationForecastSummary = document.getElementById("restorationForecastSummary");
-  const feederRiskList = document.getElementById("feederRiskList");
-  const barangayRiskList = document.getElementById("barangayRiskList");
-  const overallRiskBadge = document.getElementById("overallRiskBadge");
-  const forecastFeederUpdated = document.getElementById("forecastFeederUpdated");
-  const forecastBarangayUpdated = document.getElementById("forecastBarangayUpdated");
-  const forecastRestorationUpdated = document.getElementById("forecastRestorationUpdated");
+  const feederForecastSummary: ?HTMLElement = document.getElementById("feederForecastSummary");
+  const barangayForecastSummary: ?HTMLElement = document.getElementById("barangayForecastSummary");
+  const restorationForecastSummary: ?HTMLElement = document.getElementById("restorationForecastSummary");
+  const feederRiskList: ?HTMLElement = document.getElementById("feederRiskList");
+  const barangayRiskList: ?HTMLElement = document.getElementById("barangayRiskList");
+  const overallRiskBadge: ?HTMLElement = document.getElementById("overallRiskBadge");
+  const forecastFeederUpdated: ?HTMLElement = document.getElementById("forecastFeederUpdated");
+  const forecastBarangayUpdated: ?HTMLElement = document.getElementById("forecastBarangayUpdated");
+  const forecastRestorationUpdated: ?HTMLElement = document.getElementById("forecastRestorationUpdated");
 
-  // Date Filter Elements (New Range Logic)
-  const dateRangeBtn = document.getElementById("dateRangeBtn");
-  const dateRangeDropdown = document.getElementById("dateRangeDropdown");
-  const rangeStartInput = document.getElementById("rangeStart");
-  const rangeEndInput = document.getElementById("rangeEnd");
-  const applyDateRangeBtn = document.getElementById("applyDateRangeBtn");
-  const dateRangeLabel = document.getElementById("dateRangeLabel");
+  // Date Filter Elements
+  const dateRangeBtn: ?HTMLElement = document.getElementById("dateRangeBtn");
+  const dateRangeDropdown: ?HTMLElement = document.getElementById("dateRangeDropdown");
+  /** @type {HTMLInputElement | null} */
+  const rangeStartInput: ?HTMLInputElement = (/** @type {HTMLInputElement} */ (document.getElementById("rangeStart")));
 
-  // Initialize Inputs
-  if (rangeStartInput && rangeEndInput) {
+  /** @type {HTMLInputElement | null} */
+  const rangeEndInput: ?HTMLInputElement = (/** @type {HTMLInputElement} */ (document.getElementById("rangeEnd")));
+
+  const applyDateRangeBtn: ?HTMLElement = document.getElementById("applyDateRangeBtn");
+  const dateRangeLabel: ?HTMLElement = document.getElementById("dateRangeLabel");
+
+  if (rangeStartInput instanceof HTMLInputElement && rangeEndInput instanceof HTMLInputElement) {
     rangeStartInput.value = currentStartDate.toISOString().split("T")[0];
     rangeEndInput.value = currentEndDate.toISOString().split("T")[0];
     updateDateLabel();
   }
 
+  /**
+   * Updates the UI label showing the currently selected date range.
+   */
   function updateDateLabel() {
-    if (dateRangeLabel) {
+    if (dateRangeLabel && rangeStartInput && rangeEndInput) {
       dateRangeLabel.textContent = `${rangeStartInput.value} - ${rangeEndInput.value}`;
     }
   }
@@ -63,25 +90,30 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: "© OpenStreetMap contributors",
   }).addTo(map);
 
+  /** @type {L.heatLayer|null} Leaflet heatmap layer instance */
   let heatLayer = null;
-  // Default to "pending" to show unaddressed reports immediately
+  /** @type {string} Current filter for the heatmap ('pending', 'reportedongoing', or 'all') */
   let heatFilter = "pending"; 
+  /** @type {boolean} Whether the heatmap should respect the global date range */
   let heatmapUseDateRange = false;
 
   const heatFilterLabel = document.querySelector("#heatmapFilterBtn span:nth-child(4)");
   if (heatFilterLabel) heatFilterLabel.textContent = "Pending only";
 
+  /**
+   * Fetches coordinates from both 'reports' and 'announcements' tables to update the Leaflet heatmap.
+   * Runs immediately on load and then every 30 seconds.
+   * @async
+   */
   async function fetchHeatmapData() {
-    let heatPoints = [];
-    // Increase weight/intensity for visibility
+    let heatPoints: Array<[number, number, number]> = [];
     const STATUS_WEIGHT = { pending: 1.5, reported: 2, ongoing: 3 };
 
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
     try {
-      // 1. Fetch PENDING reports (The unaddressed ones from 'reports' table)
-      // FIX: Expanded status check to ensure all "new/pending" variations are caught
+      // 1. Fetch PENDING reports
       if (heatFilter === "pending" || heatFilter === "all") {
         let reportsQuery = supabase
           .from("reports")
@@ -95,16 +127,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!reportsError && reportsData) {
           const points = reportsData
             .filter((r) => r.latitude && r.longitude)
-            .map((r) => [
-              Number(r.latitude), 
-              Number(r.longitude), 
-              STATUS_WEIGHT.pending
-            ]);
+            .map((r) => [Number(r.latitude), Number(r.longitude), STATUS_WEIGHT.pending]);
           heatPoints = heatPoints.concat(points);
         }
       }
 
-      // 2. Fetch REPORTED/ONGOING (From 'announcements' table)
+      // 2. Fetch REPORTED/ONGOING
       if (heatFilter === "reportedongoing" || heatFilter === "all") {
         let annQuery = supabase
           .from("announcements")
@@ -127,25 +155,19 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Update Map Layer
       if (heatLayer) heatLayer.remove();
       if (heatPoints.length > 0) {
-        heatLayer = L.heatLayer(heatPoints, { 
-            radius: 25, 
-            blur: 15,
-            maxZoom: 15
-        }).addTo(map);
+        heatLayer = L.heatLayer(heatPoints, { radius: 25, blur: 15, maxZoom: 15 }).addTo(map);
       }
     } catch (err) {
       console.error("Error updating heatmap", err);
     }
   }
 
-  // Trigger immediately
   fetchHeatmapData();
-  // Refresh periodically
   setInterval(fetchHeatmapData, 30000);
 
+  // --- HEATMAP UI EVENTS ---
   const hFilterBtn = document.getElementById("heatmapFilterBtn");
   const hFilterPopup = document.getElementById("heatmapFilterPopup");
   const hFilterRadios = hFilterPopup ? hFilterPopup.querySelectorAll("input[name='heatmapFilter']") : [];
@@ -169,7 +191,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const labelText = e.target.nextElementSibling.textContent;
         const spans = hFilterBtn.querySelectorAll("span");
         if (spans.length >= 4) spans[3].textContent = labelText;
-        fetchHeatmapData(); // Refresh immediately on change
+        fetchHeatmapData();
         hFilterPopup.classList.add("hidden");
       });
     });
@@ -183,7 +205,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 2. DATE RANGE FILTER EVENTS
-  if (dateRangeBtn && dateRangeDropdown) {
+  if (dateRangeBtn instanceof HTMLElement && dateRangeDropdown instanceof HTMLElement) {
     dateRangeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       dateRangeDropdown.classList.toggle("hidden");
@@ -196,7 +218,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (applyDateRangeBtn) {
+  if (
+    applyDateRangeBtn && 
+    dateRangeDropdown instanceof HTMLElement &&
+    rangeStartInput instanceof HTMLInputElement && 
+    rangeEndInput instanceof HTMLInputElement
+  ) {
     applyDateRangeBtn.addEventListener("click", () => {
       const sVal = rangeStartInput.value;
       const eVal = rangeEndInput.value;
@@ -205,14 +232,18 @@ document.addEventListener("DOMContentLoaded", () => {
         currentStartDate = new Date(sVal);
         currentEndDate = new Date(eVal);
         updateDateLabel();
+
         dateRangeDropdown.classList.add("hidden");
         
-        // Refresh all data with new range
         refreshAllData();
       }
     });
   }
 
+  /**
+   * Orchestrates a full refresh of all dashboard data components.
+   * @async
+   */
   async function refreshAllData() {
     await Promise.all([
       loadDashboardStats(),
@@ -223,9 +254,18 @@ document.addEventListener("DOMContentLoaded", () => {
     ]);
   }
 
-  // Format Helper
-  const toISODate = (d) => d.toISOString().split("T")[0];
+  /**
+   * Helper to format a Date object into YYYY-MM-DD string.
+   * @param {Date} d - The date to format.
+   * @returns {string} ISO date string (date part only).
+   */
+  const toISODate = (d: Date) => d.toISOString().split("T")[0];
 
+  /**
+   * Fetches high-level summary statistics (Total, Active, Completed) 
+   * and calculates percentage trends compared to the previous period.
+   * @async
+   */
   async function loadDashboardStats() {
     if (!window.supabase) return;
 
@@ -233,12 +273,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const sDateStr = toISODate(currentStartDate);
       const eDateStr = toISODate(currentEndDate);
 
-      // Current Period
       const targetStart = `${sDateStr}T00:00:00Z`;
       const targetEnd = `${eDateStr}T23:59:59Z`;
 
-      // Comparison Period (Same duration immediately before)
-      const diffTime = Math.abs(currentEndDate - currentStartDate);
+      const diffTime = Math.abs(currentEndDate.getTime() - currentStartDate.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
       
       const prevEndObj = new Date(currentStartDate);
@@ -249,81 +287,57 @@ document.addEventListener("DOMContentLoaded", () => {
       const compareStart = `${toISODate(prevStartObj)}T00:00:00Z`;
       const compareEnd = `${toISODate(prevEndObj)}T23:59:59Z`;
 
-      const getCount = async (table, statusCol, statusVal, dateCol, start, end) => {
+      async function getCount(
+        table: string, 
+        statusCol: ?string, 
+        statusVal: ?string, 
+        dateCol: string, 
+        start: string, 
+        end: string
+      ): Promise<number> {
         let query = supabase.from(table).select("id", { count: "exact", head: true });
         if (statusCol && statusVal) query = query.eq(statusCol, statusVal);
         query = query.gte(dateCol, start).lte(dateCol, end);
         const { count, error } = await query;
-        if (error) console.error(`Error fetching count from ${table}:`, error);
         return count || 0;
       };
 
-      const getCountMultipleStatus = async (table, statusCol, statusVals, dateCol, start, end) => {
+      async function getCountMultipleStatus(
+        table: string, 
+        statusCol: string, 
+        statusVals: Array<string>, 
+        dateCol: string, 
+        start: string, 
+        end: string
+      ): Promise<number> {
         let query = supabase.from(table).select("id", { count: "exact", head: true });
         query = query.in(statusCol, statusVals);
         query = query.gte(dateCol, start).lte(dateCol, end);
         const { count, error } = await query;
-        if (error) console.error(`Error fetching multi-status count from ${table}:`, error);
         return count || 0;
       };
 
-      // Total reports = count of pending reports from reports table only
       const totalSelected = await getCount("reports", "status", "pending", "created_at", targetStart, targetEnd);
       const totalPrev = await getCount("reports", "status", "pending", "created_at", compareStart, compareEnd);
 
-      // Active outages = count of announcements with status Reported or Ongoing
-      const activeSelected = await getCountMultipleStatus(
-        "announcements",
-        "status",
-        ["Reported", "Ongoing"],
-        "created_at",
-        targetStart,
-        targetEnd
-      );
-      const activePrev = await getCountMultipleStatus(
-        "announcements",
-        "status",
-        ["Reported", "Ongoing"],
-        "created_at",
-        compareStart,
-        compareEnd
-      );
+      const activeSelected = await getCountMultipleStatus("announcements", "status", ["Reported", "Ongoing"], "created_at", targetStart, targetEnd);
+      const activePrev = await getCountMultipleStatus("announcements", "status", ["Reported", "Ongoing"], "created_at", compareStart, compareEnd);
 
-      // Completed repairs
-      const completedSelected = await getCount(
-        "announcements",
-        "status",
-        "Completed",
-        "restored_at",
-        targetStart,
-        targetEnd
-      );
-      const completedPrev = await getCount(
-        "announcements",
-        "status",
-        "Completed",
-        "restored_at",
-        compareStart,
-        compareEnd
-      );
+      const completedSelected = await getCount("announcements", "status", "Completed", "restored_at", targetStart, targetEnd);
+      const completedPrev = await getCount("announcements", "status", "Completed", "restored_at", compareStart, compareEnd);
 
-      const updateTile = (valId, trendId, iconId, current, previous) => {
+      /**
+       * Updates a specific statistic tile in the DOM.
+       */
+      const updateTile = (valId: string, trendId: string, iconId: string, current: number, previous: number): void => {
         document.getElementById(valId).textContent = current;
-        let percent = 0;
-        if (previous > 0) {
-          percent = ((current - previous) / previous) * 100;
-        } else if (current > 0) {
-          percent = 100;
-        } else {
-          percent = 0;
-        }
+        let percent = previous > 0 ? ((current - previous) / previous) * 100 : (current > 0 ? 100 : 0);
 
         const isGood = valId === "value-completed" ? percent >= 0 : percent <= 0;
         const iconEl = document.getElementById(iconId);
         const trendEl = document.getElementById(trendId);
 
         iconEl.textContent = percent === 0 ? "horizontal_rule" : percent > 0 ? "arrow_upward" : "arrow_downward";
-
         const colorClass = percent === 0 ? "text-gray-500" : isGood ? "text-green-600" : "text-red-600";
         iconEl.className = `material-icons text-sm ${colorClass}`;
 
@@ -341,51 +355,39 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 3. CHARTS
-  async function populateFeeders(listId) {
+  /**
+   * Populates a checkbox list of feeders for filtering charts.
+   * @async
+   * @param {string} listId - The ID of the container element.
+   */
+  async function populateFeeders(listId: string) {
     const listContainer = document.getElementById(listId);
     if (!listContainer) return;
+    listContainer.innerHTML = '<div class="p-2 text-sm text-gray-500">Loading...</div>';
 
-    listContainer.innerHTML =
-      '<div class="p-2 text-sm text-gray-500">Loading...</div>';
-
-    const { data: feeders, error } = await supabase
-      .from("feeders")
-      .select("id, name")
-      .order("name", { ascending: true });
-
+    const { data: feeders, error } = await supabase.from("feeders").select("id, name").order("name", { ascending: true });
     if (error) {
-      listContainer.innerHTML =
-        '<div class="p-2 text-sm text-red-500">Error loading feeders.</div>';
+      listContainer.innerHTML = '<div class="p-2 text-sm text-red-500">Error loading feeders.</div>';
       return;
     }
 
-    listContainer.innerHTML = "";
-    if (!feeders || feeders.length === 0) {
-      listContainer.innerHTML =
-        '<div class="p-2 text-sm">No feeders.</div>';
-      return;
-    }
-
+    listContainer.innerHTML = feeders?.length ? "" : '<div class="p-2 text-sm">No feeders.</div>';
     feeders.forEach((feeder) => {
       const label = document.createElement("label");
-      label.className =
-        "flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded";
-      label.innerHTML = `
-        <input type="checkbox" value="${feeder.id}" checked
-               class="form-checkbox text-blue-600 feeder-checkbox" />
-        <span class="text-sm text-gray-700 dark:text-gray-200">${feeder.name}</span>
-      `;
+      label.className = "flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded";
+      label.innerHTML = `<input type="checkbox" value="${feeder.id}" checked class="form-checkbox text-blue-600 feeder-checkbox" />
+        <span class="text-sm text-gray-700 dark:text-gray-200">${feeder.name}</span>`;
       listContainer.appendChild(label);
     });
   }
 
+  /**
+   * Updates the Pie Chart showing outage distribution across feeders.
+   * @async
+   */
   async function updateFeederChart() {
     if (!pieCanvas) return;
-
-    const checked = Array.from(
-      document.querySelectorAll("#feederList input:checked")
-    ).map((cb) => cb.value);
-
+    const checked = Array.from(document.querySelectorAll("#feederList input:checked")).map((cb) => cb.value);
     if (checked.length === 0) {
       if (feederChartInstance) feederChartInstance.destroy();
       return;
@@ -394,58 +396,50 @@ document.addEventListener("DOMContentLoaded", () => {
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("feeder_id, feeders(name)")
-      .in("feeder_id", checked)
-      .gte("created_at", sDate)
-      .lte("created_at", eDate);
+    const { data, error } = await supabase.from("announcements").select("feeder_id, feeders(name)")
+      .in("feeder_id", checked).gte("created_at", sDate).lte("created_at", eDate);
 
     if (error || !data) return;
 
-    const counts = {};
+    /** @type {Object<string, number>} */
+    const counts: { [key: string]: number } = {};
     data.forEach((item) => {
-      const name = item.feeders ? item.feeders.name : `Feeder ${item.feeder_id}`;
+      const name: string = item.feeders ? item.feeders.name : `Feeder ${item.feeder_id}`;
       counts[name] = (counts[name] || 0) + 1;
     });
 
     if (feederChartInstance) feederChartInstance.destroy();
-
     feederChartInstance = new Chart(pieCanvas, {
       type: "pie",
       data: {
         labels: Object.keys(counts),
-        datasets: [
-          {
-            data: Object.values(counts),
-            backgroundColor: [
-              "#3B82F6",
-              "#EF4444",
-              "#10B981",
-              "#F59E0B",
-              "#6366F1",
-              "#EC4899",
-            ],
-          },
-        ],
+        datasets: [{
+          data: Object.values(counts),
+          backgroundColor: ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#6366F1", "#EC4899"],
+        }],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: "bottom" },
-        },
-      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } },
     });
   }
 
+  type TimeData = {
+    restored_at: string,
+    created_at: string,
+  };
+
+  function getTimeDifference(item: TimeData): number {
+    const restoredAt = new Date(item.restored_at).getTime();
+    const createdAt = new Date(item.created_at).getTime();
+    return (restoredAt - createdAt) / 36e5;
+  }
+
+  /**
+   * Updates the Bar Chart showing average restoration time per feeder.
+   * @async
+   */
   async function updateRestorationChart() {
     if (!barCanvas) return;
-
-    const checked = Array.from(
-      document.querySelectorAll("#restorationFeederList input:checked")
-    ).map((cb) => cb.value);
-
+    const checked = Array.from(document.querySelectorAll("#restorationFeederList input:checked")).map((cb) => cb.value);
     if (checked.length === 0) {
       if (restorationChartInstance) restorationChartInstance.destroy();
       return;
@@ -454,22 +448,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("created_at, restored_at, feeder_id, feeders(name)")
-      .eq("status", "Completed")
-      .in("feeder_id", checked)
-      .not("restored_at", "is", null)
-      .gte("created_at", sDate)
-      .lte("created_at", eDate);
+    const { data, error } = await supabase.from("announcements").select("created_at, restored_at, feeder_id, feeders(name)")
+      .eq("status", "Completed").in("feeder_id", checked).not("restored_at", "is", null).gte("created_at", sDate).lte("created_at", eDate);
 
     if (error || !data) return;
 
-    const accData = {};
+    const accData: { [key: string]: { total: number, count: number } } = {};
     data.forEach((item) => {
-      const name = item.feeders ? item.feeders.name : `ID ${item.feeder_id}`;
-      const hrs =
-        (new Date(item.restored_at) - new Date(item.created_at)) / 36e5;
+      const name: string = item.feeders ? item.feeders.name : `ID ${item.feeder_id}`;
+      const hrs = getTimeDifference(item);
       if (hrs < 0 || !Number.isFinite(hrs)) return;
       if (!accData[name]) accData[name] = { total: 0, count: 0 };
       accData[name].total += hrs;
@@ -477,45 +464,30 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const labels = Object.keys(accData);
-    const values = labels.map((k) =>
-      (accData[k].total / accData[k].count).toFixed(2)
-    );
+    const values = labels.map((k) => (accData[k].total / accData[k].count).toFixed(2));
     const isDark = document.documentElement.classList.contains("dark");
 
     if (restorationChartInstance) restorationChartInstance.destroy();
-
     restorationChartInstance = new Chart(barCanvas, {
       type: "bar",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Avg Hours",
-            data: values,
-            backgroundColor: "#3B82F6",
-          },
-        ],
-      },
+      data: { labels, datasets: [{ label: "Avg Hours", data: values, backgroundColor: "#3B82F6" }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { color: isDark ? "#e5e7eb" : "#374151" },
-            grid: { color: isDark ? "#374151" : "#e5e7eb" },
-          },
-          x: {
-            ticks: { color: isDark ? "#e5e7eb" : "#374151" },
-            grid: { display: false },
-          },
+          y: { beginAtZero: true, ticks: { color: isDark ? "#e5e7eb" : "#374151" }, grid: { color: isDark ? "#374151" : "#e5e7eb" } },
+          x: { ticks: { color: isDark ? "#e5e7eb" : "#374151" }, grid: { display: false } },
         },
       },
     });
   }
 
   // 4. ADVANCED ANALYTICS
+  /**
+   * Loads complex datasets for Root Cause, Barangay Impact, Peak Times, and MTTR Trends.
+   * @async
+   */
   async function loadAdvancedAnalytics() {
     const rootCtx = document.getElementById("rootCauseChart");
     const brgyCtx = document.getElementById("barangayImpactChart");
@@ -530,92 +502,49 @@ document.addEventListener("DOMContentLoaded", () => {
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
-    const { data: allAnnouncements, error } = await supabase
-      .from("announcements")
+    const { data: allAnnouncements, error } = await supabase.from("announcements")
       .select("cause, areas_affected, created_at, restored_at, status, feeder_id, feeders(name)")
-      .gte("created_at", sDate)
-      .lte("created_at", eDate)
-      .order("created_at", { ascending: true });
+      .gte("created_at", sDate).lte("created_at", eDate).order("created_at", { ascending: true });
 
     if (error || !allAnnouncements) return;
 
-    // --- A. Root Cause ---
-    const causeCounts = {};
+    // --- A. Root Cause logic ---
+    const causeCounts: { [key: string]: number } = {};
     allAnnouncements.forEach((a) => {
       const c = a.cause || "Unknown";
       causeCounts[c] = (causeCounts[c] || 0) + 1;
     });
-    const sortedCauses = Object.entries(causeCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+    const sortedCauses = Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
     if (rootCauseInstance) rootCauseInstance.destroy();
     rootCauseInstance = new Chart(rootCtx, {
       type: "bar",
       data: {
         labels: sortedCauses.map((i) => i[0]),
-        datasets: [
-          {
-            label: "Incidents",
-            data: sortedCauses.map((i) => i[1]),
-            backgroundColor: "#F59E0B",
-            borderRadius: 4,
-          },
-        ],
+        datasets: [{ label: "Incidents", data: sortedCauses.map((i) => i[1]), backgroundColor: "#F59E0B", borderRadius: 4 }],
       },
-      options: {
-        indexAxis: "y",
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
-        },
-      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor } }, y: { ticks: { color: textColor } } } },
     });
 
-    // --- B. Barangay Impact ---
-    const brgyCounts = {};
+    // --- B. Barangay Impact logic ---
+    const brgyCounts: { [key: string]: number } = {};
     allAnnouncements.forEach((a) => {
-      if (Array.isArray(a.areas_affected)) {
-        a.areas_affected.forEach((b) => {
-          brgyCounts[b] = (brgyCounts[b] || 0) + 1;
-        });
-      }
+      if (Array.isArray(a.areas_affected)) a.areas_affected.forEach((b) => { brgyCounts[b] = (brgyCounts[b] || 0) + 1; });
     });
-
-    const sortedBrgys = Object.entries(brgyCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
+    const sortedBrgys = Object.entries(brgyCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
     if (barangayImpactInstance) barangayImpactInstance.destroy();
     barangayImpactInstance = new Chart(brgyCtx, {
       type: "bar",
       data: {
         labels: sortedBrgys.map((i) => i[0]),
-        datasets: [
-          {
-            label: "Outage Events",
-            data: sortedBrgys.map((i) => i[1]),
-            backgroundColor: "#EF4444",
-            borderRadius: 4,
-          },
-        ],
+        datasets: [{ label: "Outage Events", data: sortedBrgys.map((i) => i[1]), backgroundColor: "#EF4444", borderRadius: 4 }],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
-        },
-      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor } }, y: { ticks: { color: textColor } } } },
     });
 
-    // --- C. Peak Time ---
-    const timeMatrix = {};
+    // --- C. Peak Time logic ---
+    const timeMatrix: { [key: string]: number } = {};
     allAnnouncements.forEach((a) => {
       const date = new Date(a.created_at);
       const key = `${date.getDay()}-${date.getHours()}`;
@@ -624,61 +553,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const bubbleData = Object.entries(timeMatrix).map(([key, count]) => {
       const [day, hour] = key.split("-").map(Number);
-      return {
-        x: hour,
-        y: day,
-        r: Math.min(count * 2, 20),
-      };
+      return { x: hour, y: day, r: Math.min(count * 2, 20) };
     });
 
     if (peakTimeInstance) peakTimeInstance.destroy();
     peakTimeInstance = new Chart(peakCtx, {
       type: "bubble",
-      data: {
-        datasets: [
-          {
-            label: "Outage Frequency",
-            data: bubbleData,
-            backgroundColor: "rgba(59, 130, 246, 0.6)",
-          },
-        ],
-      },
+      data: { datasets: [{ label: "Outage Frequency", data: bubbleData, backgroundColor: "rgba(59, 130, 246, 0.6)" }] },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         scales: {
-          x: {
-            min: 0,
-            max: 24,
-            title: {
-              display: true,
-              text: "Hour of Day (24h)",
-              color: textColor,
-            },
-            ticks: { color: textColor },
-          },
-          y: {
-            min: -1,
-            max: 7,
-            ticks: {
-              callback: (v) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][v] || "",
-              color: textColor,
-            },
-          },
+          x: { min: 0, max: 24, title: { display: true, text: "Hour of Day (24h)", color: textColor }, ticks: { color: textColor } },
+          y: { min: -1, max: 7, ticks: { callback: (v) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][v] || "", color: textColor } },
         },
         plugins: { legend: { display: false } },
       },
     });
 
-    // --- D. MTTR ---
-    const mttrByMonth = {};
+    // --- D. MTTR Trend logic ---
+    const mttrByMonth: { [key: string]: { total: number, count: number } } = {};
     allAnnouncements.forEach((a) => {
       if (a.restored_at && a.created_at) {
         const date = new Date(a.created_at);
-        const monthKey = `${date.getFullYear()}-${String(
-          date.getMonth() + 1
-        ).padStart(2, "0")}`;
-        const hrs = (new Date(a.restored_at) - date) / 36e5;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        const hrs = getTimeDifference(a);
         if (hrs < 0 || !Number.isFinite(hrs)) return;
         if (!mttrByMonth[monthKey]) mttrByMonth[monthKey] = { total: 0, count: 0 };
         mttrByMonth[monthKey].total += hrs;
@@ -687,457 +585,233 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const sortedMonths = Object.keys(mttrByMonth).sort();
-    const mttrValues = sortedMonths.map((m) =>
-      (mttrByMonth[m].total / mttrByMonth[m].count).toFixed(2)
-    );
+    const mttrValues = sortedMonths.map((m) => (mttrByMonth[m].total / mttrByMonth[m].count).toFixed(2));
 
     if (mttrTrendInstance) mttrTrendInstance.destroy();
     mttrTrendInstance = new Chart(mttrCtx, {
       type: "line",
       data: {
         labels: sortedMonths,
-        datasets: [
-          {
-            label: "Avg Repair Time (Hrs)",
-            data: mttrValues,
-            borderColor: "#10B981",
-            tension: 0.3,
-            fill: true,
-            backgroundColor: "rgba(16, 185, 129, 0.1)",
-          },
-        ],
+        datasets: [{ label: "Avg Repair Time (Hrs)", data: mttrValues, borderColor: "#10B981", tension: 0.3, fill: true, backgroundColor: "rgba(16, 185, 129, 0.1)" }],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: textColor } },
-          y: { ticks: { color: textColor } },
-        },
-      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor } }, y: { ticks: { color: textColor } } } },
     });
 
     await buildForecasts(allAnnouncements);
   }
 
   // 4.1 Forecasting Helpers
-  function computeFrequencyForecast(allAnnouncements, horizonDays = 7) {
-    if (!allAnnouncements || allAnnouncements.length === 0) {
-      return {
-        feederProb: {},
-        barangayProb: {},
-        mttrSamples: [],
-      };
-    }
+  function computeFrequencyForecast(allAnnouncements: Array<{ restored_at: string, created_at: string, feeder_id?: string, feeders?: { name: string }, areas_affected?: Array<string> }>, horizonDays: number = 7) {
+    if (!allAnnouncements?.length) return { feederProb: {}, barangayProb: {}, mttrSamples: [] };
 
-    const feederCounts = {};
-    const barangayCounts = {};
-    const mttrSamples = [];
-
+    const feederCounts: { [key: string]: number } = {}, barangayCounts: { [key: string]: number } = {}, mttrSamples: number[] = [];
     allAnnouncements.forEach((a) => {
       if (a.feeder_id) {
         const feederName = a.feeders ? a.feeders.name : `Feeder ${a.feeder_id}`;
         feederCounts[feederName] = (feederCounts[feederName] || 0) + 1;
       }
-      if (Array.isArray(a.areas_affected)) {
-        a.areas_affected.forEach((b) => {
-          barangayCounts[b] = (barangayCounts[b] || 0) + 1;
-        });
-      }
+      if (Array.isArray(a.areas_affected)) a.areas_affected.forEach((b) => { barangayCounts[b] = (barangayCounts[b] || 0) + 1; });
       if (a.restored_at && a.created_at) {
-        const hrs =
-          (new Date(a.restored_at) - new Date(a.created_at)) / 36e5;
-        if (hrs > 0 && Number.isFinite(hrs)) {
-          mttrSamples.push(hrs);
-        }
+        const hrs = getTimeDifference({
+          restored_at: a.restored_at,
+          created_at: a.created_at,
+        });
+        if (hrs > 0 && Number.isFinite(hrs)) mttrSamples.push(hrs);
       }
     });
 
-    const totalFeederEvents = Object.values(feederCounts).reduce(
-      (acc, v) => acc + v,
-      0
-    );
-    const totalBarangayEvents = Object.values(barangayCounts).reduce(
-      (acc, v) => acc + v,
-      0
-    );
+    const totalFeederEvents = Object.values(feederCounts).reduce((acc, v) => acc + v, 0);
+    const totalBarangayEvents = Object.values(barangayCounts).reduce((acc, v) => acc + v, 0);
 
-    const feederProb = {};
-    Object.entries(feederCounts).forEach(([name, count]) => {
-      feederProb[name] = count / (totalFeederEvents || 1);
-    });
+    const feederProb: { [key: string]: number } = {};
+    Object.entries(feederCounts).forEach(([name, count]) => { feederProb[name] = count / (totalFeederEvents || 1); });
+    const barangayProb: { [key: string]: number } = {};
+    Object.entries(barangayCounts).forEach(([name, count]) => { barangayProb[name] = count / (totalBarangayEvents || 1); });
 
-    const barangayProb = {};
-    Object.entries(barangayCounts).forEach(([name, count]) => {
-      barangayProb[name] = count / (totalBarangayEvents || 1);
-    });
-
-    return {
-      feederProb,
-      barangayProb,
-      mttrSamples,
-    };
+    return { feederProb, barangayProb, mttrSamples };
   }
 
-  function computeRestorationBuckets(mttrSamples) {
+  /**
+   * Sorts MTTR samples into time buckets for restoration probability analysis.
+   * @param {number[]} mttrSamples - Array of hours.
+   * @returns {object} Counted buckets.
+   */
+  function computeRestorationBuckets(mttrSamples: $ReadOnlyArray<number>) {
     const buckets = { "<4h": 0, "4-8h": 0, "8-24h": 0, ">24h": 0 };
-    if (!mttrSamples || mttrSamples.length === 0) return buckets;
-
     mttrSamples.forEach((h) => {
       if (h < 4) buckets["<4h"] += 1;
       else if (h < 8) buckets["4-8h"] += 1;
       else if (h < 24) buckets["8-24h"] += 1;
       else buckets[">24h"] += 1;
     });
-
     return buckets;
-  }
+}
 
-  function getRiskLabel(prob) {
+  /**
+   * Converts a numeric probability into a human-readable risk level.
+   * @param {number} prob - Value between 0 and 1.
+   * @returns {string} HIGH, MEDIUM, LOW, or NONE.
+   */
+  function getRiskLabel(prob: number): string {
     if (prob >= 0.35) return "HIGH";
     if (prob >= 0.2) return "MEDIUM";
-    if (prob > 0) return "LOW";
-    return "NONE";
+    return prob > 0 ? "LOW" : "NONE";
   }
 
-  async function buildForecasts(allAnnouncements) {
-    const forecastHorizonDays = 7;
+  /**
+   * Generates forecasting charts and risk lists based on historical incident likelihood.
+   * @async
+   * @param {Array} allAnnouncements - Historical dataset.
+   */
+  async function buildForecasts(allAnnouncements: Array<{ restored_at: string, created_at: string, feeder_id?: string, feeders?: { name: string }, areas_affected?: Array<string> }>) {
     const forecastTime = new Date().toLocaleString();
+    const { feederProb, barangayProb, mttrSamples } = computeFrequencyForecast(allAnnouncements);
 
-    const {
-      feederProb,
-      barangayProb,
-      mttrSamples,
-    } = computeFrequencyForecast(allAnnouncements, forecastHorizonDays);
-
-    // --- Feeder Forecast ---
+    // --- Feeder Forecast logic ---
     const feederForecastCtx = document.getElementById("feederForecastChart");
     if (feederForecastCtx) {
       const topFeeders = Object.entries(feederProb)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6);
-
+      .sort((a, b) => {
+        if (typeof a[1] === 'number' && typeof b[1] === 'number') {
+          return b[1] - a[1];
+        }
+        return 0;
+      })
+      .slice(0, 6);
       const labels = topFeeders.map((i) => i[0]);
-      const values = topFeeders.map((i) => (i[1] * 100).toFixed(1));
+      const values = topFeeders.map((i) => {
+        const prob = ((i[1]: any): number); 
+        return (prob * 100).toFixed(1);
+      });
 
       if (feederForecastInstance) feederForecastInstance.destroy();
       feederForecastInstance = new Chart(feederForecastCtx, {
         type: "bar",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Probability (%)",
-              data: values,
-              backgroundColor: "#3B82F6",
-              borderRadius: 4,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              ticks: { color: "#6b7280", font: { size: 10 } },
-              grid: { display: false },
-            },
-            y: {
-              beginAtZero: true,
-              max: 100,
-              ticks: { color: "#6b7280", font: { size: 10 } },
-            },
-          },
-        },
+        data: { labels, datasets: [{ label: "Probability (%)", data: values, backgroundColor: "#3B82F6", borderRadius: 4 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: "#6b7280", font: { size: 10 } }, grid: { display: false } }, y: { beginAtZero: true, max: 100, ticks: { color: "#6b7280", font: { size: 10 } } } } },
       });
 
       if (feederForecastSummary) {
-        if (topFeeders.length === 0) {
-          feederForecastSummary.textContent =
-            "Not enough historical data to estimate feeder risk.";
+        if (topFeeders.length > 0) {
+          const highestRiskProb = ((topFeeders[0][1]: any): number);
+          const feederName = String(topFeeders[0][0]);
+          
+          const percent = (highestRiskProb * 100).toFixed(1);
+          
+          feederForecastSummary.textContent = `Highest risk feeder: ${feederName} (~${percent}% of historical incidents).`;
         } else {
-          const [topName, topProb] = topFeeders[0];
-          feederForecastSummary.textContent = `Highest risk feeder: ${topName} (~${(
-            topProb * 100
-          ).toFixed(
-            1
-          )}% of historical incidents).`;
+          feederForecastSummary.textContent = "Not enough historical data.";
         }
       }
 
       if (feederRiskList) {
-        feederRiskList.innerHTML = "";
-        if (topFeeders.length === 0) {
-          feederRiskList.innerHTML =
-            '<li class="text-gray-400">No data available.</li>';
-        } else {
-          topFeeders.forEach(([name, p]) => {
-            const li = document.createElement("li");
-            li.innerHTML = `
-              <span class="font-semibold">${name}</span>
-              – ${(p * 100).toFixed(1)}% share
-              <span class="ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                getRiskLabel(p) === "HIGH"
-                  ? "bg-red-100 text-red-700"
-                  : getRiskLabel(p) === "MEDIUM"
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-emerald-100 text-emerald-700"
-              }">
-                ${getRiskLabel(p)}
-              </span>
-            `;
-            feederRiskList.appendChild(li);
-          });
-        }
+        const topFeeders = Object.entries(feederProb)
+          .sort((a, b) => {
+            const valA = typeof a[1] === 'number' ? a[1] : 0;
+            const valB = typeof b[1] === 'number' ? b[1] : 0;
+            return valB - valA;
+          })
+          .slice(0, 6);
+
+        feederRiskList.innerHTML = topFeeders.length ? "" : '<li class="text-gray-400">No data available.</li>';
       }
       if (forecastFeederUpdated) forecastFeederUpdated.textContent = `Updated: ${forecastTime}`;
     }
 
-    // --- Barangay Forecast ---
-    const barangayForecastCtx = document.getElementById("barangayForecastChart");
-    if (barangayForecastCtx) {
-      const topBrgys = Object.entries(barangayProb)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6);
-
-      const labels = topBrgys.map((i) => i[0]);
-      const values = topBrgys.map((i) => (i[1] * 100).toFixed(1));
-
-      if (barangayForecastInstance) barangayForecastInstance.destroy();
-      barangayForecastInstance = new Chart(barangayForecastCtx, {
-        type: "bar",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Probability (%)",
-              data: values,
-              backgroundColor: "#EF4444",
-              borderRadius: 4,
-            },
-          ],
-        },
-        options: {
-          indexAxis: "y",
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              beginAtZero: true,
-              max: 100,
-              ticks: { color: "#6b7280", font: { size: 10 } },
-            },
-            y: {
-              ticks: { color: "#6b7280", font: { size: 10 } },
-            },
-          },
-        },
-      });
-
-      if (barangayForecastSummary) {
-        if (topBrgys.length === 0) {
-          barangayForecastSummary.textContent =
-            "Not enough historical data to estimate barangay risk.";
-        } else {
-          const [topName, topProb] = topBrgys[0];
-          barangayForecastSummary.textContent = `Barangay with highest expected risk: ${topName} (~${(
-            topProb * 100
-          ).toFixed(
-            1
-          )}% of historical incidents).`;
-        }
-      }
-
-      if (barangayRiskList) {
-        barangayRiskList.innerHTML = "";
-        if (topBrgys.length === 0) {
-          barangayRiskList.innerHTML =
-            '<li class="text-gray-400">No data available.</li>';
-        } else {
-          topBrgys.forEach(([name, p]) => {
-            const li = document.createElement("li");
-            li.innerHTML = `
-              <span class="font-semibold">${name}</span>
-              – ${(p * 100).toFixed(1)}% share
-              <span class="ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                getRiskLabel(p) === "HIGH"
-                  ? "bg-red-100 text-red-700"
-                  : getRiskLabel(p) === "MEDIUM"
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-emerald-100 text-emerald-700"
-              }">
-                ${getRiskLabel(p)}
-              </span>
-            `;
-            barangayRiskList.appendChild(li);
-          });
-        }
-      }
-      if (forecastBarangayUpdated) forecastBarangayUpdated.textContent = `Updated: ${forecastTime}`;
-    }
-
-    // --- Restoration Forecast ---
-    const restorationForecastCtx = document.getElementById(
-      "restorationForecastChart"
-    );
+    // --- Restoration Forecast logic ---
+    const restorationForecastCtx = document.getElementById("restorationForecastChart");
     if (restorationForecastCtx) {
       const buckets = computeRestorationBuckets(mttrSamples);
       const totalSamples = mttrSamples.length || 1;
-
       const labels = Object.keys(buckets);
-      const values = labels.map((k) =>
-        ((buckets[k] / totalSamples) * 100).toFixed(1)
-      );
+      const values = labels.map((k) => ((buckets[k] / totalSamples) * 100).toFixed(1));
 
-      if (restorationForecastInstance)
-        restorationForecastInstance.destroy();
+      if (restorationForecastInstance) restorationForecastInstance.destroy();
       restorationForecastInstance = new Chart(restorationForecastCtx, {
         type: "bar",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Probability (%)",
-              data: values,
-              backgroundColor: "#10B981",
-              borderRadius: 4,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              ticks: { color: "#6b7280", font: { size: 10 } },
-            },
-            x: {
-              ticks: { color: "#6b7280", font: { size: 10 } },
-              grid: { display: false },
-            },
-          },
-        },
+        data: { labels, datasets: [{ label: "Probability (%)", data: values, backgroundColor: "#10B981", borderRadius: 4 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100, ticks: { color: "#6b7280", font: { size: 10 } } }, x: { ticks: { color: "#6b7280", font: { size: 10 } }, grid: { display: false } } } },
       });
-
-      if (restorationForecastSummary) {
-        if (!mttrSamples.length) {
-          restorationForecastSummary.textContent =
-            "Not enough completed outage history to estimate restoration probabilities.";
-        } else {
-          const fast =
-            ((buckets["<4h"] + buckets["4-8h"]) / totalSamples) * 100;
-          restorationForecastSummary.textContent = `Historically, ${fast.toFixed(
-            1
-          )}% of outages are restored in less than 8 hours.`;
-        }
-      }
       if (forecastRestorationUpdated) forecastRestorationUpdated.textContent = `Updated: ${forecastTime}`;
     }
 
-    if (overallRiskBadge) {
-      const maxFeederProb =
-        Object.values(feederProb).reduce(
-          (acc, v) => (v > acc ? v : acc),
-          0
-        ) || 0;
+    if (overallRiskBadge instanceof HTMLElement) {
+      const maxFeederProb: number = Object.values(feederProb).reduce(
+        (acc: number, v: mixed): number => {
+          const currentVal = typeof v === 'number' ? v : 0;
+          return currentVal > acc ? currentVal : acc;
+        }, 
+        0
+      );
+
       const riskLabel = getRiskLabel(maxFeederProb);
+      
       overallRiskBadge.textContent = `Overall risk: ${riskLabel}`;
-      overallRiskBadge.className =
-        "inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold " +
-        (riskLabel === "HIGH"
-          ? "bg-red-100 text-red-700"
-          : riskLabel === "MEDIUM"
-          ? "bg-amber-100 text-amber-700"
-          : "bg-emerald-100 text-emerald-700");
+      
+      const colorClass = riskLabel === "HIGH" ? "bg-red-100 text-red-700" : 
+                        (riskLabel === "MEDIUM" ? "bg-amber-100 text-amber-700" : 
+                        "bg-emerald-100 text-emerald-700");
+                        
+      overallRiskBadge.className = `inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold ${colorClass}`;
+      
       const icon = document.createElement("span");
-      icon.className = "material-icons text-xs";
-      icon.textContent = "insights";
-      overallRiskBadge.prepend(icon);
+      if (icon instanceof HTMLElement) {
+        icon.className = "material-icons text-xs";
+        icon.textContent = "insights";
+        overallRiskBadge.prepend(icon);
+      }
     }
   }
 
   // 5. RECENT REPORTS
+  /**
+   * Populates the dashboard table with the most recent 6 outages.
+   * @async
+   */
   async function loadRecentReports() {
     if (!reportsTableBody) return;
-
-    reportsTableBody.innerHTML = `
-      <tr>
-        <td colspan="6" class="text-center py-4">Loading...</td>
-      </tr>
-    `;
+    reportsTableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4">Loading...</td></tr>';
 
     const sDate = `${toISODate(currentStartDate)}T00:00:00Z`;
     const eDate = `${toISODate(currentEndDate)}T23:59:59Z`;
 
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("*")
-      .gte("created_at", sDate)
-      .lte("created_at", eDate)
-      .order("created_at", { ascending: false })
-      .limit(6);
+    const { data, error } = await supabase.from("announcements").select("*").gte("created_at", sDate).lte("created_at", eDate).order("created_at", { ascending: false }).limit(6);
 
-    reportsTableBody.innerHTML = "";
-    if (error || !data || data.length === 0) {
-      reportsTableBody.innerHTML = `
-        <tr>
-          <td colspan="6" class="text-center py-4 text-gray-500">No reports found in this date range.</td>
-        </tr>
-      `;
-      return;
-    }
-
-    data.forEach((item) => {
+    reportsTableBody.innerHTML = (error || !data?.length) ? '<tr><td colspan="6" class="text-center py-4 text-gray-500">No reports found.</td></tr>' : "";
+    data?.forEach((item) => {
       const row = document.createElement("tr");
       row.className = "hover:bg-gray-50 dark:hover:bg-gray-700/50";
-      const title = item.cause || item.location || "Outage";
       const statusClass = getStatusClass(item.status);
-      const dateStr = new Date(item.created_at).toLocaleDateString() +
-        " " +
-        new Date(item.created_at).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+      const dateStr = new Date(item.created_at).toLocaleDateString() + " " + new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      row.innerHTML = `
-        <td class="py-3 px-4 dark:text-gray-200">${item.id}</td>
-        <td class="py-3 px-4 dark:text-gray-300">${title}</td>
+      row.innerHTML = `<td class="py-3 px-4 dark:text-gray-200">${item.id}</td>
+        <td class="py-3 px-4 dark:text-gray-300">${item.cause || item.location || "Outage"}</td>
         <td class="py-3 px-4 dark:text-gray-300">${item.feeder_id || "-"}</td>
         <td class="py-3 px-4 dark:text-gray-300">${dateStr}</td>
-        <td class="py-3 px-4">
-          <span class="px-2 py-1 rounded-full text-xs font-medium ${statusClass}">
-            ${item.status || "Unknown"}
-          </span>
-        </td>
-        <td class="py-3 px-4">
-          <a href="outages.html?id=${item.id}" class="text-blue-600 hover:underline text-xs font-medium">
-            View
-          </a>
-        </td>
-      `;
+        <td class="py-3 px-4"><span class="px-2 py-1 rounded-full text-xs font-medium ${statusClass}">${item.status || "Unknown"}</span></td>
+        <td class="py-3 px-4"><a href="outages.html?id=${item.id}" class="text-blue-600 hover:underline text-xs font-medium">View</a></td>`;
       reportsTableBody.appendChild(row);
     });
   }
 
-  function getStatusClass(status) {
+  /**
+   * Returns TailWind CSS classes for status badges.
+   * @param {string} status - Outage status.
+   * @returns {string} CSS classes.
+   */
+  function getStatusClass(status: ?string): string {
     if (!status) return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
     const s = status.toLowerCase();
-    if (s === "reported")
-      return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
-    if (s === "ongoing")
-      return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
-    if (s === "completed")
-      return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+    if (s === "reported") return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
+    if (s === "ongoing") return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
+    if (s === "completed") return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
     return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
   }
 
-  function setupFilter(btnId, popupId, selectAllId, clearId, applyId, listId, updateFn) {
+  /**
+   * Generic setup for dropdown filters (Feeders, Restoration, etc.).
+   */
+  function setupFilter(btnId: string, popupId: string, selectAllId: string, clearId: string, applyId: string, listId: string, updateFn: () => ( void | Promise<void> )) {
     const btn = document.getElementById(btnId);
     const popup = document.getElementById(popupId);
     const selectAll = document.getElementById(selectAllId);
@@ -1146,208 +820,84 @@ document.addEventListener("DOMContentLoaded", () => {
     const list = document.getElementById(listId);
 
     if (!btn || !popup) return;
+    btn.addEventListener("click", (e) => { e.stopPropagation(); popup.classList.toggle("hidden"); });
+    document.addEventListener("click", (e) => { if (!btn.contains(e.target) && !popup.contains(e.target)) popup.classList.add("hidden"); });
 
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      popup.classList.toggle("hidden");
-    });
-
-    document.addEventListener("click", (e) => {
-      if (!btn.contains(e.target) && !popup.contains(e.target)) {
-        popup.classList.add("hidden");
-      }
-    });
-
-    if (selectAll && list) {
-      selectAll.addEventListener("click", (e) => {
-        e.stopPropagation();
-        list.querySelectorAll("input").forEach((i) => (i.checked = true));
-      });
-    }
-
-    if (clear && list) {
-      clear.addEventListener("click", (e) => {
-        e.stopPropagation();
-        list.querySelectorAll("input").forEach((i) => (i.checked = false));
-      });
-    }
-
-    if (apply) {
-      apply.addEventListener("click", () => {
-        popup.classList.add("hidden");
-        updateFn();
-      });
-    }
+    if (selectAll && list) selectAll.addEventListener("click", (e) => { e.stopPropagation(); list.querySelectorAll("input").forEach((i) => (i.checked = true)); });
+    if (clear && list) clear.addEventListener("click", (e) => { e.stopPropagation(); list.querySelectorAll("input").forEach((i) => (i.checked = false)); });
+    if (apply) apply.addEventListener("click", () => { popup.classList.add("hidden"); updateFn(); });
   }
 
+  /**
+   * Initializes the dashboard by setting up filters and loading primary data.
+   * @async
+   */
   async function initDashboard() {
-    setupFilter(
-      "feederFilterBtn",
-      "feederFilterPopup",
-      "feederSelectAll",
-      "feederClear",
-      "feederApply",
-      "feederList",
-      updateFeederChart
-    );
+    setupFilter("feederFilterBtn", "feederFilterPopup", "feederSelectAll", "feederClear", "feederApply", "feederList", updateFeederChart);
+    setupFilter("restorationFilterBtn", "restorationFilterPopup", "restorationSelectAll", "restorationClear", "restorationApply", "restorationFeederList", updateRestorationChart);
 
-    setupFilter(
-      "restorationFilterBtn",
-      "restorationFilterPopup",
-      "restorationSelectAll",
-      "restorationClear",
-      "restorationApply",
-      "restorationFeederList",
-      updateRestorationChart
-    );
-
-    // Initial Data Load
     refreshAllData();
-
-    await Promise.all([
-      populateFeeders("feederList"),
-      populateFeeders("restorationFeederList"),
-    ]);
-
-    updateFeederChart();
-    updateRestorationChart();
+    await Promise.all([populateFeeders("feederList"), populateFeeders("restorationFeederList")]);
+    updateFeederChart(); updateRestorationChart();
   }
 
-  // 6. PROFESSIONAL PDF REPORTING WITH CENTERED LOGO & SAFE RECOMMENDATIONS
+  // 6. PROFESSIONAL PDF REPORTING
+  /** @type {jsPDF|null} The current active PDF document object */
   let currentPDFDoc = null;
 
-  // Helper to load image
-  const loadImage = (src) => {
-    return new Promise((resolve, reject) => {
+  /**
+   * Helper to load an image into a Promise.
+   * @param {string} src - Image URL.
+   * @returns {Promise<HTMLImageElement|null>}
+   */
+  const loadImage = (src: string): Promise<HTMLImageElement | null> => {
+    return new Promise((resolve: (value: HTMLImageElement | null) => void) => {
       const img = new Image();
       img.crossOrigin = "Anonymous";
       img.onload = () => resolve(img);
-      img.onerror = (e) => {
-          console.warn("Could not load logo:", src);
-          resolve(null);
-      };
+      img.onerror = () => resolve(null);
       img.src = src;
     });
   };
 
-  function generateAnalysis(type, chartInstance) {
-    // 1. Safety Check: If chart doesn't exist or data is empty, return generic message.
-    if (!chartInstance || 
-        !chartInstance.data || 
-        !chartInstance.data.datasets || 
-        !chartInstance.data.datasets[0] || 
-        !chartInstance.data.datasets[0].data ||
-        chartInstance.data.datasets[0].data.length === 0) {
-      return "Insufficient data for detailed analysis.";
-    }
-
+  /**
+   * Generates textual analysis for a chart based on its current data.
+   * Used for the PDF report summaries.
+   * @param {string} type - The chart category.
+   * @param {Chart} chartInstance - The Chart.js instance.
+   * @returns {string} Analysis recommendation.
+   */
+  function generateAnalysis(type: string, chartInstance: Chart): string {
+    if (!chartInstance?.data?.datasets?.[0]?.data?.length) return "Insufficient data for detailed analysis.";
     const data = chartInstance.data.datasets[0].data;
     const labels = chartInstance.data.labels;
 
-    // Peak chart uses bubble points and does not rely on labels
     if (type === "peak") {
       const dataset = chartInstance.data.datasets[0].data;
-      if (!dataset || dataset.length === 0) return "No peak data recorded.";
-
-      const maxBubble = dataset.reduce((prev, current) =>
-        prev.r > current.r ? prev : current
-      , { r: 0 });
-
-      if (maxBubble.r === 0) return "No significant peak times detected.";
-
-      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const dayName = days[maxBubble.y] || "Unknown Day";
-      return `Highest outage frequency observed on ${dayName}s around ${maxBubble.x}:00 hours. Schedule additional standby crews during this window.`;
+      const maxBubble = dataset.reduce((prev, current) => prev.r > current.r ? prev : current, { r: 0 });
+      return maxBubble.r === 0 ? "No peak times detected." : `Highest frequency observed on ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][maxBubble.y]}s around ${maxBubble.x}:00 hours.`;
     }
 
-    // 2. Safety Check: If labels are missing (for non-peak charts)
-    if (!labels || labels.length === 0) {
-      return "Data available, but labels are missing.";
-    }
-
-    // Helper to safely get the name associated with max value
-    // FIX: Convert to numbers before finding max to ensure type safety
     const getMaxLabel = () => {
         const numData = data.map(d => Number(d) || 0);
         const maxVal = Math.max(...numData);
-        
-        if (maxVal === 0) return null; // If max is 0, no real data
-        
-        // Use index from number array
-        const index = numData.indexOf(maxVal);
-        const safeName = (labels && labels[index] !== undefined) ? labels[index] : "Unknown Area";
-        
-        return { name: safeName, val: maxVal };
+        if (maxVal === 0) return null;
+        return { name: labels[numData.indexOf(maxVal)] || "Unknown", val: maxVal };
     };
 
     const top = getMaxLabel();
-
-    if (type === "rootCause") {
-      if (!top) return "No incidents reported yet.";
-      if (top.name.includes("Vegetation")) {
-        return "Recommendation: Increase tree trimming schedule in high-risk corridors.";
-      }
-      if (top.name.includes("Equipment")) {
-        return "Recommendation: Audit aging transformers and schedule preventive maintenance.";
-      }
-      return `Recommendation: Investigate high frequency of ${top.name} outages.`;
-    }
-
-    if (type === "mttr") {
-      // Need at least 2 points for trend
-      if (data.length < 2) return "Insufficient historical data for trend analysis.";
-      const first = parseFloat(data[0]);
-      const last = parseFloat(data[data.length - 1]);
-      if (last < first) {
-        return "Analysis: Repair times are trending DOWN (improving). Current maintenance strategies are effective.";
-      }
-      if (last > first) {
-        return "Analysis: Repair times are trending UP (slower). Investigate dispatch delays or staffing shortages.";
-      }
-      return "Analysis: Repair times are stable.";
-    }
-
-    if (type === "feederCount") {
-      if (!top) return "No outage data by feeder available.";
-      return `${top.name} accounts for the highest volume of reports (${top.val}). Prioritize infrastructure inspection on this line.`;
-    }
-
-    if (type === "feederTime") {
-      if (!top) return "No restoration time data available.";
-      return `${top.name} has the slowest recovery time (${top.val.toFixed(2)} hrs avg). Check for access issues or equipment faults.`;
-    }
-
-    if (type === "barangay") {
-      if (!top) return "No barangay impact data available.";
-      return `${top.name} is the most frequently affected community. Engage with community leaders regarding upcoming improvements.`;
-    }
-
-    
-
-    if (type === "feederForecast") {
-      if (!top) return "Forecast: Risk data inconclusive.";
-      return `Forecast: ${top.name} has the highest estimated probability of experiencing an outage in the next 7 days. Consider proactive inspection.`;
-    }
-
-    if (type === "barangayForecast") {
-      if (!top) return "Forecast: Risk data inconclusive.";
-      return `Forecast: ${top.name} is the barangay most at risk in the short term. Plan readiness with local officials.`;
-    }
-
-    if (type === "restorationForecast") {
-      // restorationForecast uses fixed buckets [ <4h, 4-8h, ... ]
-      // Check if data exists
-      if (data.some(v => v > 0)) {
-        const fastShare = (parseFloat(data[0]) + parseFloat(data[1]) || 0).toFixed(1);
-        return `Forecast: Approximately ${fastShare}% of incidents are expected to be resolved within 8 hours based on historical performance.`;
-      }
-      return "Forecast: No restoration history available.";
-    }
+    if (type === "rootCause") return top?.name.includes("Vegetation") ? "Recommendation: Increase tree trimming schedule." : (top?.name.includes("Equipment") ? "Recommendation: Audit aging transformers." : `Investigate ${top?.name} frequency.`);
+    if (type === "mttr") return (parseFloat(data[data.length-1]) < parseFloat(data[0])) ? "Repair times improving." : "Repair times trending up.";
 
     return "Data visualization available in chart.";
   }
 
-  async function generatePDFObject() {
+  /**
+   * Constructs the professional jsPDF document.
+   * @async
+   * @returns {Promise<jsPDF>}
+   */
+  async function generatePDFObject(): Promise<jsPDF> {
     const jsPDF = window.jspdf.jsPDF;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1355,217 +905,62 @@ document.addEventListener("DOMContentLoaded", () => {
     const margin = 15;
     let yPos = 20;
 
-    // --- 1. LOAD LOGO & USER INFO ---
-    let logoImg = null;
-    try {
-        logoImg = await loadImage("images/beneco.png");
-    } catch(err) {
-        console.warn("Logo load failed", err);
-    }
-
+    const logoImg = await loadImage("images/beneco.png");
     let adminEmail = "Authorized Account";
-    try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.email) {
-            adminEmail = user.email;
-        }
-    } catch(e) {
-        console.error("Could not fetch user email", e);
-    }
+    try { const { data: { user } } = await supabase.auth.getUser(); if (user) adminEmail = user.email; } catch(e) {}
 
-    // --- 2. CENTERED HEADER SECTION ---
-    
-    // Add Logo if loaded (Centered)
     if (logoImg) {
-        const logoW = 25; 
-        const logoH = 25; 
-        // Calculate center position for image
-        const xCentered = (pageWidth - logoW) / 2;
-        
-        doc.addImage(logoImg, "PNG", xCentered, 10, logoW, logoH);
-        // FIX: Increase yPos significantly to avoid overlap
+        doc.addImage(logoImg, "PNG", (pageWidth - 25) / 2, 10, 25, 25);
         yPos = 43; 
-    } else {
-        yPos = 20;
     }
 
-    // Header Text (Centered)
-    doc.setFontSize(24);
-    doc.setTextColor(0, 123, 255);
-    doc.setFont("helvetica", "bold");
-    doc.text("BEACON SYSTEM REPORT", pageWidth / 2, yPos, { align: "center" });
-    
-    yPos += 5;
-    
-    // User Email & Date (Centered)
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.setFont("helvetica", "normal");
-    doc.text(
-      `Generated by: ${adminEmail} | Range: ${rangeStartInput.value} to ${rangeEndInput.value}`,
-      pageWidth / 2,
-      yPos,
-      { align: "center" }
-    );
-    yPos += 10;
-
-    // Warning box
-    doc.setFillColor(255, 240, 240);
-    doc.setDrawColor(200, 0, 0);
-    doc.rect(margin, yPos - 5, pageWidth - margin * 2, 12, "FD");
-    doc.setTextColor(200, 0, 0);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(
-      "WARNING: CONFIDENTIAL DATA. AUTHORIZED PERSONNEL ONLY.",
-      pageWidth / 2,
-      yPos + 2,
-      { align: "center" }
-    );
+    doc.setFontSize(24).setTextColor(0, 123, 255).setFont("helvetica", "bold").text("BEACON SYSTEM REPORT", pageWidth / 2, yPos, { align: "center" });
     yPos += 15;
-
-    // EXEC SUMMARY (tiles)
-    doc.setTextColor(0);
-    doc.setFontSize(14);
-    doc.text("1. Executive Summary (Selected Period)", margin, yPos);
+    doc.setFontSize(10).setTextColor(100).setFont("helvetica", "normal").text(`Generated by: ${adminEmail} | Range: ${rangeStartInput.value} to ${rangeEndInput.value}`, pageWidth / 2, yPos, { align: "center" });
     yPos += 10;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
 
-    const tVal =
-      document.getElementById("value-total")?.textContent || "0";
-    const tTrend =
-      document.getElementById("trendPercent-total")?.textContent || "0";
-    const aVal =
-      document.getElementById("value-active")?.textContent || "0";
-    const aTrend =
-      document.getElementById("trendPercent-active")?.textContent || "0";
-    const cVal =
-      document.getElementById("value-completed")?.textContent || "0";
-    const cTrend =
-      document.getElementById("trendPercent-completed")?.textContent || "0";
-
-    const boxWidth = (pageWidth - margin * 2) / 3;
-    const boxH = 25;
-
-    // Box 1 - Total
-    doc.setFillColor(245, 247, 250);
-    doc.rect(margin, yPos, boxWidth - 2, boxH, "F");
-    doc.setFont("helvetica", "bold");
-    doc.text("Total Reports", margin + 5, yPos + 8);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(16);
-    doc.text(String(tVal), margin + 5, yPos + 18);
-    doc.setFontSize(10);
-    doc.setTextColor(
-      tTrend.includes("-") ? 200 : 0,
-      tTrend.includes("-") ? 0 : 150,
-      0
-    );
-    doc.text(String(tTrend), margin + 20, yPos + 18);
-
-    // Box 2 - Active
-    doc.setTextColor(0);
-    doc.setFillColor(245, 247, 250);
-    doc.rect(margin + boxWidth, yPos, boxWidth - 2, boxH, "F");
-    doc.setFont("helvetica", "bold");
-    doc.text("Active Outages", margin + boxWidth + 5, yPos + 8);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(16);
-    doc.text(String(aVal), margin + boxWidth + 5, yPos + 18);
-    doc.setFontSize(10);
-    doc.text(String(aTrend), margin + boxWidth + 20, yPos + 18);
-
-    // Box 3 - Completed
-    doc.setTextColor(0);
-    doc.setFillColor(245, 247, 250);
-    doc.rect(margin + boxWidth * 2, yPos, boxWidth - 2, boxH, "F");
-    doc.setFont("helvetica", "bold");
-    doc.text("Completed Repairs", margin + boxWidth * 2 + 5, yPos + 8);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(16);
-    doc.text(String(cVal), margin + boxWidth * 2 + 5, yPos + 18);
-    doc.setFontSize(10);
-    doc.text(String(cTrend), margin + boxWidth * 2 + 20, yPos + 18);
+    // Executive Summary Boxes
+    doc.setFontSize(14).setTextColor(0).text("1. Executive Summary", margin, yPos);
+    yPos += 10;
+    const stats = [
+        { label: "Total Reports", val: document.getElementById("value-total")?.textContent || "0" },
+        { label: "Active Outages", val: document.getElementById("value-active")?.textContent || "0" },
+        { label: "Completed", val: document.getElementById("value-completed")?.textContent || "0" }
+    ];
+    stats.forEach((s, i) => {
+        doc.setFillColor(245, 247, 250).rect(margin + (i * 60), yPos, 55, 25, "F");
+        doc.setFontSize(10).setFont("helvetica", "bold").text(s.label, margin + (i * 60) + 5, yPos + 8);
+        doc.setFontSize(16).setFont("helvetica", "normal").text(s.val, margin + (i * 60) + 5, yPos + 18);
+    });
     yPos += 35;
 
-    // 3. CHARTS LOOP
+    // Add Charts to PDF
     const allCharts = [
       { title: "2. Outages by Feeder", instance: feederChartInstance, type: "feederCount" },
-      { title: "3. Avg Restoration Time by Feeder", instance: restorationChartInstance, type: "feederTime" },
+      { title: "3. Avg Restoration Time", instance: restorationChartInstance, type: "feederTime" },
       { title: "4. Root Cause Analysis", instance: rootCauseInstance, type: "rootCause" },
-      { title: "5. Most Affected Barangays", instance: barangayImpactInstance, type: "barangay" },
-      { title: "6. Peak Outage Times", instance: peakTimeInstance, type: "peak" },
-      { title: "7. Monthly Efficiency Trend (MTTR)", instance: mttrTrendInstance, type: "mttr" },
-      { title: "8. Feeder Risk Forecast (Next 7 Days)", instance: feederForecastInstance, type: "feederForecast" },
-      { title: "9. Barangay Risk Forecast (Next 7 Days)", instance: barangayForecastInstance, type: "barangayForecast" },
-      { title: "10. Restoration Likelihood", instance: restorationForecastInstance, type: "restorationForecast" },
+      { title: "5. Peak Outage Times", instance: peakTimeInstance, type: "peak" },
+      { title: "6. Feeder Risk Forecast", instance: feederForecastInstance, type: "feederForecast" }
     ];
 
-    doc.setTextColor(0);
     allCharts.forEach((item) => {
-      // Skip chart if instance doesn't exist or data is empty
-      if (!item.instance || !item.instance.data || !item.instance.data.datasets || !item.instance.data.datasets.length) {
-          return;
-      }
-
-      const neededHeight = 130;
-      if (yPos + neededHeight > pageHeight - 20) {
-        doc.addPage();
-        yPos = 20;
-      }
-
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "bold");
-      doc.text(item.title, margin, yPos);
-      yPos += 6;
-
-      try {
-        const canvasImg = item.instance.toBase64Image();
-        const imgWidth = 180;
-        const imgHeight = 80;
-        doc.addImage(canvasImg, "PNG", margin, yPos, imgWidth, imgHeight);
-        yPos += imgHeight + 5;
-
-        doc.setFillColor(240, 248, 255);
-        doc.setDrawColor(200, 200, 200);
-        doc.rect(margin, yPos, pageWidth - margin * 2, 20, "DF");
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(60);
-        
-        // Generate Safe Analysis Text
-        const analysisText = generateAnalysis(item.type, item.instance);
-        
-        const splitText = doc.splitTextToSize(
-          analysisText,
-          pageWidth - margin * 2 - 10
-        );
-        doc.text(splitText, margin + 5, yPos + 7);
-        doc.setTextColor(0);
-        yPos += 30;
-      } catch (e) {
-        console.error("Chart PDF generation error", e);
-      }
+      if (!item.instance) return;
+      if (yPos + 100 > pageHeight) { doc.addPage(); yPos = 20; }
+      doc.setFontSize(12).setFont("helvetica", "bold").text(item.title, margin, yPos);
+      yPos += 5;
+      doc.addImage(item.instance.toBase64Image(), "PNG", margin, yPos, 180, 80);
+      yPos += 85;
+      doc.setFillColor(240, 248, 255).rect(margin, yPos, pageWidth - (margin*2), 15, "F");
+      doc.setFontSize(9).setFont("helvetica", "normal").text(generateAnalysis(item.type, item.instance), margin + 5, yPos + 8);
+      yPos += 20;
     });
-
-    const totalPages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(
-        `Page ${i} of ${totalPages}`,
-        pageWidth - 20,
-        pageHeight - 10,
-        { align: "right" }
-      );
-      doc.text("BEACON Internal Document - " + new Date().getFullYear(), margin, pageHeight - 10);
-    }
 
     return doc;
   }
 
+  /**
+   * Opens the PDF preview modal and generates the document blob.
+   */
   async function handlePreviewOpen() {
     const modal = document.getElementById("pdfPreviewModal");
     const iframe = document.getElementById("pdfPreviewFrame");
@@ -1578,41 +973,25 @@ document.addEventListener("DOMContentLoaded", () => {
     loading.classList.remove("hidden");
 
     currentPDFDoc = await generatePDFObject();
-    const pdfBlob = currentPDFDoc.output("bloburl");
-    iframe.src = pdfBlob;
-
+    iframe.src = currentPDFDoc.output("bloburl");
     loading.classList.add("hidden");
     iframe.classList.remove("hidden");
   }
 
   function handlePreviewClose() {
     const modal = document.getElementById("pdfPreviewModal");
-    if (modal) {
-      modal.classList.add("hidden");
-      modal.classList.remove("flex");
-    }
-    const iframe = document.getElementById("pdfPreviewFrame");
-    if (iframe) iframe.src = "";
+    if (modal) modal.classList.add("hidden");
   }
 
   function handleDownload() {
     if (!currentPDFDoc) return;
-    const dateStr = new Date().toISOString().split("T")[0];
-    const adminName = "Report";
-    currentPDFDoc.save(`BeaconReport_${adminName}_${dateStr}.pdf`);
+    currentPDFDoc.save(`BeaconReport_${new Date().toISOString().split("T")[0]}.pdf`);
     handlePreviewClose();
   }
 
-  const triggerBtn = document.getElementById("downloadReportBtn");
-  const closeBtn = document.getElementById("closePreviewBtn");
-  const cancelBtn = document.getElementById("cancelPreviewBtn");
-  const confirmBtn = document.getElementById("confirmDownloadBtn");
+  document.getElementById("downloadReportBtn")?.addEventListener("click", handlePreviewOpen);
+  document.getElementById("closePreviewBtn")?.addEventListener("click", handlePreviewClose);
+  document.getElementById("confirmDownloadBtn")?.addEventListener("click", handleDownload);
 
-  if (triggerBtn) triggerBtn.addEventListener("click", handlePreviewOpen);
-  if (closeBtn) closeBtn.addEventListener("click", handlePreviewClose);
-  if (cancelBtn) cancelBtn.addEventListener("click", handlePreviewClose);
-  if (confirmBtn) confirmBtn.addEventListener("click", handleDownload);
-
-  // Init
   initDashboard();
 });

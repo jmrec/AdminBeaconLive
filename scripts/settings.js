@@ -1,3 +1,5 @@
+//@flow
+
 // ==========================================
 // SETTINGS PAGE SCRIPT (V3 - Navigation & Theme Fixed)
 // ==========================================
@@ -91,7 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateThemeButtons(currentTheme);
     
     // Listen for system changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', _ => {
         if (!('theme' in localStorage)) { 
             applyTheme('system');
         }
