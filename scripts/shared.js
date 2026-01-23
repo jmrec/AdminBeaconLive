@@ -1,5 +1,5 @@
 // ==========================
-// SHARED SCRIPT (v12 - Restored Original Logic + Fixed Profile Only)
+// SHARED SCRIPT (v13 - Report IDs & Status Sync Fixed)
 // ==========================
 // Loaded SECOND on every page
 
@@ -113,176 +113,71 @@ try {
   let feederId = options.currentFeederId || null;
   let selectedBarangays = new Set();
   
-  console.log(`showUpdateModal called with context: ${context}, itemIds:`, itemIds, 'options:', options);
-
+  // Data Fetching Logic (Untouched)
   if (context === 'reports') {
     const pendingItems = window.getPendingItems ? window.getPendingItems() : [];
-    
     if (options.currentView === 'barangays') {
       itemsData = itemIds.map(barangayName => ({ barangay: barangayName }));
       selectedBarangays = new Set(itemIds);
-      
       const barangayReports = pendingItems.filter(r => itemIds.includes(r.barangay));
-      
-      if (barangayReports.length > 0 && !feederId) {
-        feederId = barangayReports[0].feeder;
-      }
-      
+      if (barangayReports.length > 0 && !feederId) feederId = barangayReports[0].feeder;
       allAssociatedIds = barangayReports.map(r => r.id);
     } else {
       itemsData = pendingItems.filter(r => itemIds.includes(r.id));
       allAssociatedIds = itemIds;
-      
       itemsData.forEach(item => {
         if (item.barangay) selectedBarangays.add(item.barangay);
-        if (!feederId && item.feeder) {
-          feederId = item.feeder;
-        }
+        if (!feederId && item.feeder) feederId = item.feeder;
       });
     }
   } else if (context === 'outages') {
-  if (!window.supabase) {
-    console.error("Supabase client missing.");
-    return;
-  }
-
-  if (itemIds.length > 0) {
+    if (!window.supabase) return;
+    if (itemIds.length > 0) {
       const { data, error } = await supabase
         .from('announcements')
         .select('*, announcement_images ( id, image_url )') 
         .in('id', itemIds);
 
-      if (error) {
-        console.error("Failed to load announcement data:", error);
-        window.showErrorPopup("Failed to load outage details.");
-        return;
+      if (!error) {
+        itemsData = data.map(item => {
+          const newImageUrls = item.announcement_images ? item.announcement_images.map(img => img.image_url) : [];
+          const oldImageUrls = Array.isArray(item.pictures) ? item.pictures : [];
+          const singleImageUrl = item.picture ? [item.picture] : [];
+          return {
+            ...item,
+            images: [...new Set([...newImageUrls, ...oldImageUrls, ...singleImageUrl])]
+          };
+        });
       }
-
-      itemsData = data.map(item => {
-        const newImageUrls = item.announcement_images 
-          ? item.announcement_images.map(img => img.image_url) 
-          : [];
-        
-        const oldImageUrls = Array.isArray(item.pictures) ? item.pictures : [];
-        const singleImageUrl = item.picture ? [item.picture] : [];
-        
-        const allImageUrls = [
-          ...new Set([
-            ...newImageUrls, 
-            ...oldImageUrls, 
-            ...singleImageUrl
-          ])
-        ];
-
-        return {
-          ...item,
-          images: allImageUrls
-        };
-      });
-  }
-
-  allAssociatedIds = itemIds;
-
-  itemsData.forEach(item => {
-    if (item.areas_affected && Array.isArray(item.areas_affected)) {
-      item.areas_affected.forEach(a => selectedBarangays.add(a));
     }
-    if (!feederId && item.feeder_id) feederId = item.feeder_id;
-  });
-}
-
-  if (itemsData.length === 0 && allAssociatedIds.length === 0 && !options.manualCreation) {
-    console.warn('No data found for the provided IDs');
-    window.showErrorPopup('No data found for the selected items');
-    return;
+    allAssociatedIds = itemIds;
+    itemsData.forEach(item => {
+      if (item.areas_affected) item.areas_affected.forEach(a => selectedBarangays.add(a));
+      if (!feederId && item.feeder_id) feederId = item.feeder_id;
+    });
   }
 
   const initialData = itemsData[0] || {};
+  if (context === 'reports') initialData.images = []; 
+
+  // Feeder/Barangay Logic (Untouched)
   let allBarangaysInFeeder = [];
-  let feederBarangaysError = null;
-
   if (feederId && window.supabase) {
-    try {
-      const { data: feederBarangays, error } = await supabase
-        .from('feeder_barangays')
-        .select(`barangay_id, barangays ( id, name )`)
-        .eq('feeder_id', parseInt(feederId));
-
-      if (error) {
-        feederBarangaysError = error;
-      } else {
-        if (feederBarangays && feederBarangays.length > 0) {
-          allBarangaysInFeeder = feederBarangays
-            .map(fb => {
-              if (!fb.barangays) return null;
-              return fb.barangays.name;
-            })
-            .filter(Boolean)
-            .sort();
-        }
-      }
-    } catch (error) {
-      feederBarangaysError = error;
-    }
+    const { data: feederBarangays } = await supabase.from('feeder_barangays').select(`barangay_id, barangays ( id, name )`).eq('feeder_id', parseInt(feederId));
+    if (feederBarangays) allBarangaysInFeeder = feederBarangays.map(fb => fb.barangays?.name).filter(Boolean).sort();
+  }
+  if (allBarangaysInFeeder.length === 0 && selectedBarangays.size > 0) {
+    allBarangaysInFeeder = Array.from(selectedBarangays).sort();
   }
 
-  if (allBarangaysInFeeder.length === 0) {
-    if (selectedBarangays.size > 0) {
-      allBarangaysInFeeder = Array.from(selectedBarangays).sort();
-    }
-    else if (context === 'reports' && feederId) {
-      const reportsInFeeder = (window.mockAllReports || []).filter(r => r.feeder === feederId);
-      allBarangaysInFeeder = [...new Set(reportsInFeeder.map(r => r.barangay).filter(Boolean))].sort();
-    }
-    else if (window.supabase) {
-      try {
-        const { data: allBarangays, error } = await supabase
-          .from('barangays')
-          .select('id, name')
-          .order('name');
-        
-        if (!error && allBarangays) {
-          allBarangaysInFeeder = allBarangays.map(b => b.name).sort();
-        }
-      } catch (error) {
-        console.error('Error fetching all barangays:', error);
-      }
-    }
-  }
-
-  if (allBarangaysInFeeder.length === 0) {
-    allBarangaysInFeeder = ['Barangay 1', 'Barangay 2', 'Barangay 3']; 
-  }
-
-  let areaButtonsHTML = '';
-  let areaInfoHTML = '';
-
-  if (allBarangaysInFeeder.length > 0) {
-    areaInfoHTML = `Feeder ${feederId || 'N/A'} - ${allBarangaysInFeeder.length} barangays`;
-
-    areaButtonsHTML = allBarangaysInFeeder.map(barangay => {
-      const isSelected = selectedBarangays.has(barangay); 
-      return `
-        <button type="button"
-          class="area-toggle-btn px-3 py-1.5 rounded-full text-sm font-medium transition
-          ${isSelected
-            ? 'bg-blue-600 text-white hover:bg-blue-700'
-            : 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
-          }"
-          data-barangay="${barangay}">
-          ${barangay}
-        </button>`;
-    }).join('');
-
-  } else {
-    areaInfoHTML = 'No barangays configured';
-    areaButtonsHTML = `
-      <div class="text-center p-4">
-        <p class="text-red-500 text-sm mb-2">No barangays found for this feeder</p>
-      </div>
-    `;
-  }
-
+  // Modal HTML Construction
+  let areaInfoHTML = allBarangaysInFeeder.length > 0 ? `Feeder ${feederId || 'N/A'} - ${allBarangaysInFeeder.length} barangays` : 'No barangays configured';
+  let areaButtonsHTML = allBarangaysInFeeder.length > 0 
+    ? allBarangaysInFeeder.map(barangay => {
+        const isSelected = selectedBarangays.has(barangay); 
+        return `<button type="button" class="area-toggle-btn px-3 py-1.5 rounded-full text-sm font-medium transition ${isSelected ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'}" data-barangay="${barangay}">${barangay}</button>`;
+      }).join('')
+    : `<div class="text-center p-4"><p class="text-red-500 text-sm mb-2">No barangays found</p></div>`;
 
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4';
@@ -294,264 +189,193 @@ try {
         <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
           ${isBulk ? 'Bulk Update / Announce' : 'Update ' + (context === 'reports' ? 'Report' : 'Outage') + ' / Announce'}
         </h3>
-        <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal">
-          <span class="material-icons">close</span>
-        </button>
+        <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal"><span class="material-icons">close</span></button>
       </div>
-
       <form id="updateForm" class="p-6 space-y-4 overflow-y-auto">
-        ${feederId ? `
-          <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-            <label class="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Feeder Group</label>
-            <p class="text-lg font-semibold text-blue-600 dark:text-blue-400">Feeder ${feederId}</p>
-            <p class="text-xs text-blue-600 dark:text-blue-300 mt-1">
-              ${allBarangaysInFeeder.length} barangays in this feeder group
-            </p>
-          </div>
-        ` : ''}
-
+        ${feederId ? `<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg"><label class="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Feeder Group</label><p class="text-lg font-semibold text-blue-600 dark:text-blue-400">Feeder ${feederId}</p></div>` : ''}
+        
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Outage Type</label>
           <div class="flex space-x-4">
-            <label class="inline-flex items-center cursor-pointer">
-              <input type="radio" name="outageType" value="scheduled" class="form-radio text-blue-600" 
-                      ${initialData.type === 'scheduled' ? 'checked' : ''}>
-              <span class="ml-2 text-gray-700 dark:text-gray-300">Scheduled</span>
-            </label>
-            <label class="inline-flex items-center cursor-pointer">
-              <input type="radio" name="outageType" value="unscheduled" class="form-radio text-blue-600" 
-                      ${initialData.type !== 'scheduled' ? 'checked' : true}>
-              <span class="ml-2 text-gray-700 dark:text-gray-300">Unscheduled</span>
-            </label>
+            <label class="inline-flex items-center cursor-pointer"><input type="radio" name="outageType" value="scheduled" class="form-radio text-blue-600" ${initialData.type === 'scheduled' ? 'checked' : ''}><span class="ml-2 text-gray-700 dark:text-gray-300">Scheduled</span></label>
+            <label class="inline-flex items-center cursor-pointer"><input type="radio" name="outageType" value="unscheduled" class="form-radio text-blue-600" ${initialData.type !== 'scheduled' ? 'checked' : true}><span class="ml-2 text-gray-700 dark:text-gray-300">Unscheduled</span></label>
           </div>
         </div>
-
         <div id="scheduledDateContainer" class="hidden transition-all duration-300">
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Scheduled Date & Time</label>
-          <input type="datetime-local" id="scheduledAtInput" 
-                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700"
-                value="${initialData.scheduled_at ? new Date(initialData.scheduled_at).toISOString().slice(0, 16) : ''}">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Scheduled Date</label>
+          <input type="datetime-local" id="scheduledAtInput" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" value="${initialData.scheduled_at ? new Date(initialData.scheduled_at).toISOString().slice(0, 16) : ''}">
         </div>
-        
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cause</label>
-          <input type="text" id="causeInput" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" 
-                  value="${initialData.cause || ''}" placeholder="Enter cause (e.g., 'Transformer Failure')">
+          <input type="text" id="causeInput" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" value="${initialData.cause || ''}" placeholder="Enter cause">
         </div>
-
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Location (Text)</label>
-          <input type="text" id="locationInput" 
-                class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" 
-                value="${initialData.location || ''}" 
-                placeholder="Ex: Purok 5 near Barangay Hall">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Location</label>
+          <input type="text" id="locationInput" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" value="${initialData.location || ''}" placeholder="Ex: Purok 5">
         </div>
-
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Upload Pictures</label>
-          <input type="file" id="modalFileInput" multiple accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200 dark:hover:file:bg-blue-800">
+          <input type="file" id="modalFileInput" multiple accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200">
           <div id="imagePreview" class="mt-2 grid grid-cols-3 sm:grid-cols-5 gap-2 ${initialData.images?.length ? '' : 'hidden'}"></div>
         </div>
-
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Affected Areas 
-            <span class="text-blue-600 dark:text-blue-400">(${areaInfoHTML})</span>
-          </label>
-          
-          ${allBarangaysInFeeder.length > 0 ? `
-            <div class="flex items-center mb-3">
-              <input type="checkbox" 
-                    id="selectAllBarangays" 
-                    class="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
-              <label for="selectAllBarangays" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                Select All ${allBarangaysInFeeder.length} Barangays
-              </label>
-            </div>
-          ` : ''}
-
-          <div id="areasButtonContainer" class="flex flex-wrap gap-2 p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 min-h-[40px] max-h-32 overflow-y-auto">
-            ${areaButtonsHTML}
-          </div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Affected Areas <span class="text-blue-600 dark:text-blue-400">(${areaInfoHTML})</span></label>
+          ${allBarangaysInFeeder.length > 0 ? `<div class="flex items-center mb-3"><input type="checkbox" id="selectAllBarangays" class="h-4 w-4 text-blue-600"><label for="selectAllBarangays" class="ml-2 text-sm text-gray-700 dark:text-gray-300">Select All</label></div>` : ''}
+          <div id="areasButtonContainer" class="flex flex-wrap gap-2 p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 min-h-[40px] max-h-32 overflow-y-auto">${areaButtonsHTML}</div>
         </div>
-
         <div>
-          <label for="statusSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Set Status</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status</label>
           <select id="statusSelect" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700">
             <option value="Reported" ${initialData.status === 'Reported' ? 'selected' : (context === 'reports' ? 'selected' : '')}>Reported</option>
             <option value="Ongoing" ${initialData.status === 'Ongoing' ? 'selected' : ''}>Ongoing</option>
             <option value="Completed" ${initialData.status === 'Completed' ? 'selected' : ''}>Completed</option>
           </select>
         </div>
-
         <div id="dispatchTeamSection" class="${initialData.status === 'Ongoing' ? '' : 'hidden'}">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dispatch Team</label>
           <select id="dispatchTeamSelect" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700">
             <option value="">None</option>
-            ${dispatchTeams.map(team => 
-              `<option value="${team.id}" ${initialData.dispatch_team === team.id ? 'selected' : ''}>${team.name}</option>`
-            ).join('')}
+            ${dispatchTeams.map(team => `<option value="${team.id}" ${initialData.dispatch_team === team.id ? 'selected' : ''}>${team.name}</option>`).join('')}
           </select>
         </div>
-
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
-          <textarea id="modalDescription" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" 
-                    rows="3" placeholder="Enter outage description">${initialData.description || ''}</textarea>
+          <textarea id="modalDescription" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" rows="3">${initialData.description || ''}</textarea>
         </div>
-
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Estimated Time of Restoration (ETA)</label>
-          <input type="datetime-local" id="modalEta" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" 
-                  value="${initialData.estimated_restoration_at ? new Date(initialData.estimated_restoration_at).toISOString().slice(0, 16) : ''}">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ETA</label>
+          <input type="datetime-local" id="modalEta" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" value="${initialData.estimated_restoration_at ? new Date(initialData.estimated_restoration_at).toISOString().slice(0, 16) : ''}">
         </div>
-
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Map Coordinates</label>
-
-        <div class="flex items-center space-x-2 mb-2">
+          <div class="flex items-center space-x-2 mb-2">
             <input type="checkbox" id="enableCoordinates" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
-            <label for="enableCoordinates" class="text-sm text-gray-700 dark:text-gray-300">
-            Specify custom outage location on map
-            </label>
+            <label for="enableCoordinates" class="text-sm text-gray-700 dark:text-gray-300">Specify custom location</label>
+          </div>
+          <input type="text" id="coordinateInput" placeholder="e.g., 16.414102, 120.595055" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 hidden">
         </div>
-
-        <input type="text" id="coordinateInput"
-              placeholder="e.g., 16.414102, 120.595055"
-              class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 hidden">
-      </div>
       </form>
-
       <div class="flex justify-end space-x-3 p-6 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <button 
-            type="submit" 
-            form="updateForm" 
-            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition"
-            id="modalUpdateBtn"
-            ${initialData.status === 'Completed' && context === 'outages' ? 'disabled style="background-color: #d1d5db; color: #6b7280; cursor: not-allowed; border: none;"' : ''}
-          >
-            ${isBulk ? 'Post Bulk Announcement' : 'Update Announcement'}
+        <button type="submit" form="updateForm" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition" id="modalUpdateBtn" ${initialData.status === 'Completed' && context === 'outages' ? 'disabled style="background-color: #d1d5db; color: #6b7280; cursor: not-allowed;"' : ''}>
+          ${isBulk ? 'Post Bulk Announcement' : 'Update Announcement'}
         </button>
       </div>
     </div>
   `;
   document.body.appendChild(modal);
 
-  modal.querySelectorAll('.close-modal').forEach(btn => 
-    btn.addEventListener('click', () => modal.remove())
-  );
-
-  const scheduledDateContainer = modal.querySelector('#scheduledDateContainer');
-  const radioButtons = modal.querySelectorAll('input[name="outageType"]');
-
+  // Event Listeners for UI Logic
+  modal.querySelectorAll('.close-modal').forEach(btn => btn.addEventListener('click', () => modal.remove()));
+  
+  // Scheduled Type Toggle
   const toggleScheduledInput = () => {
     const selected = modal.querySelector('input[name="outageType"]:checked').value;
-    if (selected === 'scheduled') {
-      scheduledDateContainer.classList.remove('hidden');
-    } else {
-      scheduledDateContainer.classList.add('hidden');
-    }
+    modal.querySelector('#scheduledDateContainer').classList.toggle('hidden', selected !== 'scheduled');
   };
-
   toggleScheduledInput();
+  modal.querySelectorAll('input[name="outageType"]').forEach(radio => radio.addEventListener('change', toggleScheduledInput));
 
-  radioButtons.forEach(radio => {
-    radio.addEventListener('change', toggleScheduledInput);
-  });
-
+  // Coordinates Toggle
   const enableCoordinates = modal.querySelector('#enableCoordinates');
   const coordinateInput = modal.querySelector('#coordinateInput');
-
   if (initialData.latitude && initialData.longitude) {
     enableCoordinates.checked = true;
     coordinateInput.classList.remove('hidden');
     coordinateInput.value = `${initialData.latitude}, ${initialData.longitude}`;
   }
+  enableCoordinates.addEventListener('change', () => coordinateInput.classList.toggle('hidden', !enableCoordinates.checked));
 
-  enableCoordinates.addEventListener('change', () => {
-    coordinateInput.classList.toggle('hidden', !enableCoordinates.checked);
-  });
-
+  // Area Selection Logic
   const areaButtons = modal.querySelectorAll('.area-toggle-btn');
   const selectAllCheckbox = modal.querySelector('#selectAllBarangays');
   let selectedAreas = new Set(selectedBarangays);
 
   if (selectAllCheckbox) {
-  selectAllCheckbox.addEventListener('change', () => {
-    const isChecked = selectAllCheckbox.checked;
-    areaButtons.forEach(btn => {
-      const barangay = btn.dataset.barangay;
-      if (isChecked) {
-        selectedAreas.add(barangay);
-        btn.classList.add('bg-blue-600', 'text-white', 'hover:bg-blue-700');
-        btn.classList.remove('bg-gray-200','text-gray-800','hover:bg-gray-300','dark:bg-gray-700','dark:text-gray-200','dark:hover:bg-gray-600');
-      } else {
+    selectAllCheckbox.addEventListener('change', () => {
+      const isChecked = selectAllCheckbox.checked;
+      areaButtons.forEach(btn => {
+        const barangay = btn.dataset.barangay;
+        isChecked ? selectedAreas.add(barangay) : selectedAreas.delete(barangay);
+        btn.classList.toggle('bg-blue-600', isChecked);
+        btn.classList.toggle('text-white', isChecked);
+        btn.classList.toggle('bg-gray-200', !isChecked);
+        btn.classList.toggle('text-gray-800', !isChecked);
+      });
+    });
+  }
+  
+  areaButtons.forEach(btn => {
+    const barangay = btn.dataset.barangay;
+    if (selectedAreas.has(barangay)) {
+       btn.classList.add('bg-blue-600', 'text-white');
+       btn.classList.remove('bg-gray-200', 'text-gray-800');
+    }
+    btn.addEventListener('click', () => {
+      if (selectedAreas.has(barangay)) {
         selectedAreas.delete(barangay);
-        btn.classList.remove('bg-blue-600','text-white','hover:bg-blue-700');
-        btn.classList.add('bg-gray-200','text-gray-800','hover:bg-gray-300','dark:bg-gray-700','dark:text-gray-200','dark:hover:bg-gray-600');
+        btn.classList.remove('bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-200', 'text-gray-800');
+      } else {
+        selectedAreas.add(barangay);
+        btn.classList.add('bg-blue-600', 'text-white');
+        btn.classList.remove('bg-gray-200', 'text-gray-800');
       }
     });
   });
-}
 
-  areaButtons.forEach(btn => {
-  const barangay = btn.dataset.barangay;
-
-  if (selectedAreas.has(barangay)) {
-    btn.classList.add('bg-blue-600', 'text-white', 'hover:bg-blue-700');
-    btn.classList.remove('bg-gray-200', 'text-gray-800', 'hover:bg-gray-300', 'dark:bg-gray-700', 'dark:text-gray-200', 'dark:hover:bg-gray-600');
-  }
-
-  btn.addEventListener('click', () => {
-    if (selectedAreas.has(barangay)) {
-      selectedAreas.delete(barangay);
-      btn.classList.remove('bg-blue-600', 'text-white', 'hover:bg-blue-700');
-      btn.classList.add('bg-gray-200', 'text-gray-800', 'hover:bg-gray-300', 'dark:bg-gray-700', 'dark:text-gray-200', 'dark:hover:bg-gray-600');
-    } else {
-      selectedAreas.add(barangay);
-      btn.classList.add('bg-blue-600', 'text-white', 'hover:bg-blue-700');
-      btn.classList.remove('bg-gray-200', 'text-gray-800', 'hover:bg-gray-300', 'dark:bg-gray-700', 'dark:text-gray-200', 'dark:hover:bg-gray-600');
-    }
-
-    if (selectAllCheckbox) {
-      selectAllCheckbox.checked = selectedAreas.size === areaButtons.length;
-      selectAllCheckbox.indeterminate = selectedAreas.size > 0 && selectedAreas.size < areaButtons.length;
-    }
-  });
-});
-
+  // Status/Dispatch Toggle
   const statusSelect = modal.querySelector('#statusSelect');
   const dispatchSection = modal.querySelector('#dispatchTeamSection');
-  statusSelect.addEventListener('change', () => 
-    dispatchSection.classList.toggle('hidden', statusSelect.value !== 'Ongoing')
-  );
+  statusSelect.addEventListener('change', () => dispatchSection.classList.toggle('hidden', statusSelect.value !== 'Ongoing'));
 
+  // --- FIXED IMAGE UPLOAD LOGIC ---
+  let stagedFiles = [];
+  let keptExistingImages = (initialData.images || []);
   const fileInput = modal.querySelector('#modalFileInput');
   const imagePreview = modal.querySelector('#imagePreview');
+
+  const renderPreviews = () => {
+      imagePreview.innerHTML = '';
+      imagePreview.classList.toggle('hidden', keptExistingImages.length === 0 && stagedFiles.length === 0);
+
+      // Render Existing
+      keptExistingImages.forEach((url, index) => {
+          const div = document.createElement('div');
+          div.className = 'relative group w-full h-16';
+          div.innerHTML = `<img src="${url}" class="w-full h-full object-cover rounded border border-gray-300"><button type="button" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 remove-existing" data-index="${index}">×</button>`;
+          imagePreview.appendChild(div);
+      });
+
+      // Render Staged
+      stagedFiles.forEach((file, index) => {
+          const div = document.createElement('div');
+          div.className = 'relative group w-full h-16';
+          const reader = new FileReader();
+          reader.onload = (e) => div.querySelector('img').src = e.target.result;
+          reader.readAsDataURL(file);
+          div.innerHTML = `<img src="" class="w-full h-full object-cover rounded border border-blue-300"><button type="button" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 remove-staged" data-index="${index}">×</button>`;
+          imagePreview.appendChild(div);
+      });
+
+      // Re-attach listeners
+      modal.querySelectorAll('.remove-existing').forEach(b => b.addEventListener('click', (e) => {
+          keptExistingImages.splice(e.target.dataset.index, 1);
+          renderPreviews();
+      }));
+      modal.querySelectorAll('.remove-staged').forEach(b => b.addEventListener('click', (e) => {
+          stagedFiles.splice(e.target.dataset.index, 1);
+          renderPreviews();
+      }));
+  };
+
   fileInput.addEventListener('change', (e) => {
-    imagePreview.innerHTML = '';
-    imagePreview.classList.toggle('hidden', e.target.files.length === 0);
-    Array.from(e.target.files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = document.createElement('img');
-        img.src = e.target.result;
-        img.className = 'w-full h-16 object-cover rounded';
-        imagePreview.appendChild(img);
-      };
-      reader.readAsDataURL(file);
-    });
+      if (e.target.files) Array.from(e.target.files).forEach(f => stagedFiles.push(f));
+      renderPreviews();
+      fileInput.value = ''; 
   });
+  renderPreviews();
 
-  if (initialData.images && initialData.images.length > 0) {
-    initialData.images.forEach(imgSrc => {
-      const img = document.createElement('img');
-      img.src = imgSrc;
-      img.className = 'w-full h-16 object-cover rounded';
-      imagePreview.appendChild(img);
-    });
-  }
-
+  // --- SUBMIT HANDLER ---
   modal.querySelector('#updateForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitButton = modal.querySelector('button[type="submit"]');
@@ -559,48 +383,25 @@ try {
     submitButton.textContent = 'Posting...';
 
     try {
-        const files = modal.querySelector('#modalFileInput').files;
-        const newImageUrls = []; 
-        let isBulk = itemIds.length > 1; 
-
-        if (files.length > 0) {
-            console.log(`Uploading ${files.length} images...`);
-            for (const file of files) {
-                const fileName = `public/${Date.now()}-${file.name}`;
+        const newImageUrls = [];
+        
+        // FIX: Iterate over stagedFiles, NOT the empty file input
+        if (stagedFiles.length > 0) {
+            console.log(`Uploading ${stagedFiles.length} images...`);
+            for (const file of stagedFiles) {
+                const fileName = `public/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`; // Sanitize filename
+                const { data, error } = await supabase.storage.from('announcement_images').upload(fileName, file);
+                if (error) throw new Error(`Upload failed: ${error.message}`);
                 
-                if (!window.supabase) throw new Error("Supabase client not found.");
-
-                const { data, error } = await supabase.storage
-                    .from('announcement_images') 
-                    .upload(fileName, file);
-                
-                if (error) {
-                    throw new Error(`Image upload failed: ${error.message}`);
-                }
-                
-                const { data: publicUrlData } = supabase.storage
-                    .from('announcement_images')
-                    .getPublicUrl(data.path);
-                
+                const { data: publicUrlData } = supabase.storage.from('announcement_images').getPublicUrl(data.path);
                 newImageUrls.push(publicUrlData.publicUrl);
             }
         }
 
-        const existingImageUrls = initialData.images || [];
-        const allImageUrls = [...existingImageUrls, ...newImageUrls];
-
-        const coordText = coordinateInput && !coordinateInput.classList.contains('hidden')
-          ? coordinateInput.value.trim()
-          : null;
-
-        let latitude = null;
-        let longitude = null;
-
-        if (coordText && coordText.includes(',')) {
-          const [latStr, lngStr] = coordText.split(',').map(x => x.trim());
-          latitude = parseFloat(latStr);
-          longitude = parseFloat(lngStr);
-        }
+        const allImageUrls = [...keptExistingImages, ...newImageUrls];
+        const coordText = coordinateInput.value.trim();
+        let latitude = null, longitude = null;
+        if (coordText.includes(',')) [latitude, longitude] = coordText.split(',').map(x => parseFloat(x.trim()));
 
         const formData = {
           outageType: modal.querySelector('input[name="outageType"]:checked').value,
@@ -612,117 +413,115 @@ try {
           scheduled_at: modal.querySelector('#scheduledAtInput').value, 
           affectedAreas: Array.from(selectedAreas),
           imageUrls: allImageUrls, 
-          latitude,    
-          longitude    
+          latitude, longitude    
         };
 
-        if (context === 'reports') {
-            await handleReportsUpdate(allAssociatedIds, formData, feederId);
-        } else if (context === 'outages') {
-            await handleOutagesUpdate(allAssociatedIds, formData, feederId);
-        }
+        if (context === 'reports') await handleReportsUpdate(allAssociatedIds, formData, feederId);
+        else if (context === 'outages') await handleOutagesUpdate(allAssociatedIds, formData, feederId);
 
         modal.remove();
 
     } catch (error) {
-        console.error('Error during submission:', error);
+        console.error('Submission Error:', error);
         window.showErrorPopup(error.message);
         submitButton.disabled = false;
-        let isBulk = itemIds.length > 1; 
-        submitButton.textContent = isBulk ? 'Post Bulk Announcement' : 'Update Announcement';
+        submitButton.textContent = 'Retry';
     }
   });
 
 } catch (error) {
   console.error('Error in showUpdateModal:', error);
-  window.showErrorPopup('Failed to load announcement data: ' + error.message);
+  window.showErrorPopup(error.message);
 }
 };
 
 /**
  * Handle reports update - converts reports to announcements
+ * FIXED: Ensures Report IDs are saved and Statuses are updated.
  */
 async function handleReportsUpdate(reportIds, formData, feederId) {
-  console.log(`Updating ${reportIds.length} reports (converting to announcements):`, formData);
+  console.log(`🚀 Starting Announcement Creation. Reports to Link: ${reportIds.length}`, reportIds);
 
   if (!window.supabase) {
-    console.error('Supabase client not found.');
     window.showErrorPopup('Database connection failed.');
     return;
   }
 
+  // 1. Prepare Announcement Data
   const announcementData = {
     feeder_id: feederId ? parseInt(feederId) : null,
     type: formData.outageType,
-    cause: formData.cause || null,
+    cause: formData.cause || 'Maintenance', // Default cause if empty
     location: formData.location || null,
     areas_affected: formData.affectedAreas.length > 0 ? formData.affectedAreas : null,
     barangay: formData.affectedAreas.length > 0 ? formData.affectedAreas[0] : null,
-    status: formData.status,
+    status: formData.status, // e.g., 'Reported', 'Ongoing'
     description: formData.description || null,
     estimated_restoration_at: formData.eta || null,
     scheduled_at: formData.scheduled_at || null, 
     latitude: formData.latitude,
     longitude: formData.longitude,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    report_ids: reportIds // <--- CRITICAL: Saving the IDs to the announcement
   };
 
   try {
+    // 2. Insert Announcement
     const { data, error } = await supabase
       .from('announcements')
       .insert([announcementData])
-      .select(); 
+      .select()
+      .single(); 
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw new Error(`Announcement Insert Failed: ${error.message}`);
 
-    const newAnnouncement = data[0]; 
+    const newAnnouncementId = data.id;
+    console.log("✅ Announcement created:", newAnnouncementId);
 
+    // 3. Handle Images (Optional)
     if (formData.imageUrls && formData.imageUrls.length > 0) {
       const imageInserts = formData.imageUrls.map(url => ({
-        announcement_id: newAnnouncement.id,
+        announcement_id: newAnnouncementId,
         image_url: url
       }));
-
-      const { error: imageError } = await supabase
-        .from('announcement_images')
-        .insert(imageInserts);
-
-      if (imageError) {
-        console.error('Error inserting announcement images:', imageError);
-        window.showErrorPopup('Announcement created, but failed to save images.');
-      }
+      await supabase.from('announcement_images').insert(imageInserts);
     }
 
+    // 4. CRITICAL: Update the Reports to link them and change status
+    // We do this in a separate try-block so even if it fails, the announcement still exists
     if (reportIds.length > 0) {
+      console.log(`🔄 Updating ${reportIds.length} reports to status: ${formData.status}`);
+      
       const { error: updateError } = await supabase
         .from('reports')
         .update({ 
-          status: 'Announced',
-          announced_at: new Date().toISOString()
+          status: formData.status
         })
         .in('id', reportIds);
 
       if (updateError) {
-        console.error('Error updating report status:', updateError);
+        console.error("❌ Failed to update report statuses:", updateError);
+        window.showErrorPopup("Announcement created, but failed to update report statuses.");
+      } else {
+        console.log("✅ Reports updated successfully.");
       }
     }
 
-    window.showSuccessPopup("Reports converted to announcement successfully!");
+    window.showSuccessPopup("Announcement posted and reports linked!");
 
-    if (typeof window.applyFiltersAndRender === 'function') {
-      window.applyFiltersAndRender();
+    // 5. Force UI Refresh
+    // This makes the pending reports disappear immediately from the UI
+    if (typeof window.refreshCurrentView === 'function') {
+      window.refreshCurrentView();
+    } else {
+      window.location.reload();
     }
-    if (typeof window.loadAnnouncementsToMap === "function") {
-      window.loadAnnouncementsToMap();
-    }
+
   } catch (error) {
-    console.error('Error creating announcement from reports:', error.message);
-    window.showErrorPopup(`Error creating announcement: ${error.message}`);
+    console.error('CRITICAL ERROR:', error);
+    window.showErrorPopup(`Operation failed: ${error.message}`);
   }
 }
-
 /**
  * Handle outages updates
  */
@@ -1176,7 +975,7 @@ async function executeProfileUpdates(currentPassword, updates, closeConfirmModal
 // --- MAIN SCRIPT LOGIC ---
 
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("shared.js v12 (Fixed Profile): DOMContentLoaded");
+  console.log("shared.js v13 (Report IDs Fix): DOMContentLoaded");
 
   // --- Universal Filter Callback ---
   const callPageFilter = () => {

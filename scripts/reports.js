@@ -3,10 +3,10 @@
 // ==========================
 
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("Reports Page Script (V12 - Fixed Manual Flag) Loaded.");
+  console.log("Reports Page Script (V15 - Strict Pending & Correct Area Mapping) Loaded.");
 
   // --- App State ---
-  let allReports = []; // Will hold all reports from Supabase
+  let allReports = []; // Will hold ONLY PENDING reports
 
   // Config data
   const STATUS_COLORS = {
@@ -23,7 +23,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const reportsThead = document.getElementById("reportsThead");
   const reportsTitle = document.getElementById("reportsTitle");
   const backBtn = document.getElementById("backBtn");
-  const createAnnouncementBtn = document.getElementById("createAnnouncementBtn"); // NEW: Plus Button
+  const createAnnouncementBtn = document.getElementById("createAnnouncementBtn"); 
+  const attachToAnnouncementBtn = document.getElementById("attachToAnnouncementBtn"); // The + Button
   const bulkUpdateBtn = document.getElementById("bulkUpdateBtn");
 
   const statusFilterEl = document.getElementById('statusFilter');
@@ -50,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const itemsPerPage = 12;
 
   // ===================================
-  // COORDINATES COPY FUNCTION
+  // COPY FUNCTIONS
   // ===================================
   function handleCopyCoords(e) {
     const btn = e.target.closest('.copy-coords-btn');
@@ -73,6 +74,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function handleCopyContact(e) {
+    const btn = e.target.closest('.copy-contact-btn');
+    if (!btn) return;
+
+    const number = btn.dataset.contact;
+    if (!number) return;
+
+    navigator.clipboard.writeText(number).then(() => {
+      window.showSuccessPopup("Number Copied!"); 
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = '<span class="material-icons text-sm text-green-600">check</span>';
+      setTimeout(() => {
+        if (btn && btn.parentNode) {
+            btn.innerHTML = originalHTML;
+        }
+      }, 2000);
+    }).catch(err => {
+      console.error('Failed to copy contact:', err);
+    });
+  }
+
   // ===================================
   // INITIALIZATION
   // ===================================
@@ -81,18 +103,6 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Fetch all report data from Supabase first
     await fetchAllReports();
-    
-    // DEBUG: Check image URLs
-    console.log('=== IMAGE DEBUG INFO ===');
-    allReports.forEach((report, index) => {
-      if (report.images && report.images.length > 0) {
-        console.log(`Report ${index}:`, {
-          id: report.id,
-          imageCount: report.images.length,
-          imageUrls: report.images
-        });
-      }
-    });
     
     // Now that data is loaded, proceed with aggregation and UI setup
     loadAndAggregateFeederData();
@@ -106,10 +116,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===================================
 
   /**
-   * Fetches all reports from Supabase and stores them in the `allReports` variable.
+   * Fetches reports from Supabase.
+   * STRICT FILTERING: Only keeps 'Pending' reports.
+   * This prevents "Reported", "Ongoing", or "Completed" reports from lingering.
    */
   async function fetchAllReports() {
-    console.log("Fetching all reports from Supabase...");
+    console.log("Fetching reports from Supabase...");
     if (!window.supabase) {
       console.error("Supabase client not found.");
       feederTilesContainer.innerHTML = `<p class="text-red-500 col-span-full">Error: Supabase connection failed.</p>`;
@@ -131,52 +143,38 @@ document.addEventListener("DOMContentLoaded", () => {
         throw error;
       }
       
-      // 2. Transform the raw DB data to match what your JS logic expects
-      allReports = (data || []).map(r => {
-        // Helper to capitalize status (e.g., "completed" -> "Completed")
-        const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : 'Unknown';
-        
-        // Process status to match your STATUS_COLORS keys
-        let processedStatus = 'UNKNOWN';
-        if (r.status) {
-          processedStatus = r.status.toLowerCase() === 'pending' 
-            ? 'PENDING' // Fix for 'pending' vs 'PENDING'
-            : capitalize(r.status);
-        }
-
-        // FIXED: Better image URL handling
-        const images = (r.report_images || []).map(img => {
-          // If it's already a full URL, use it directly
-          if (img.image_url.startsWith('http')) {
-            return img.image_url;
-          }
-          // If it's a storage path, construct the public URL
-          const { data: publicUrlData } = supabase.storage
-            .from('report_images')
-            .getPublicUrl(img.image_url);
-          return publicUrlData.publicUrl;
-        });
-
-        return {
-          ...r,
-          // CONFLICT FIX 1: Your code expects `feeder` (number)
-          feeder: r.feeder_id,
+      // 2. Transform AND Filter immediately
+      allReports = (data || [])
+        .map(r => {
+          // Helper to capitalize status
+          const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : 'Unknown';
           
-          // CONFLICT FIX 2: Your code expects `barangay` (string name)
-          barangay: r.barangays ? r.barangays.name : 'Unknown Barangay',
-          
-          // CONFLICT FIX 3: Your code expects `status` (uppercase 'PENDING')
-          status: processedStatus,
+          // Normalize Status
+          let rawStatus = r.status ? r.status.toLowerCase() : 'unknown';
+          let processedStatus = rawStatus === 'pending' ? 'PENDING' : capitalize(r.status);
 
-          // CONFLICT FIX 4: Your code expects `volume` (number) for aggregation
-          volume: 1, // Set to 1 as a counter
-          
-          // CONFLICT FIX 5: Your code expects `images` (array of strings)
-          images: images // This now contains full URLs
-        };
-      });
+          const images = (r.report_images || []).map(img => {
+            if (img.image_url.startsWith('http')) return img.image_url;
+            const { data: publicUrlData } = supabase.storage
+              .from('report_images')
+              .getPublicUrl(img.image_url);
+            return publicUrlData.publicUrl;
+          });
 
-      console.log(`Fetched and transformed ${allReports.length} total reports.`);
+          return {
+            ...r,
+            feeder: r.feeder_id,
+            barangay: r.barangays ? r.barangays.name : 'Unknown Barangay',
+            status: processedStatus,
+            volume: 1,
+            images: images
+          };
+        })
+        // CRITICAL FIX: Strict filter. Only keep PENDING reports in memory for this page.
+        // This ensures no duplication and that completed reports vanish immediately.
+        .filter(r => r.status === 'PENDING');
+
+      console.log(`Loaded ${allReports.length} PENDING reports.`);
 
     } catch (error) {
       console.error("Error fetching reports:", error.message);
@@ -186,16 +184,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
   /**
-   * Helper function to get ONLY the "PENDING" items from the live data.
-   * Made globally available for unified modal system
+   * Helper function to get the pending items.
+   * Since allReports now ONLY contains PENDING items, this just returns allReports.
    */
   function getPendingItems() {
-    // This function is UNCHANGED and now works because fetchAllReports()
-    // correctly transforms 'pending' to 'PENDING'.
-    return allReports.filter(r => r.status === 'PENDING');
+    return allReports;
   }
 
-  // Make getPendingItems globally available for the unified modal system
+  // Make getPendingItems globally available
   window.getPendingItems = getPendingItems;
 
   function loadAndAggregateFeederData() {
@@ -204,15 +200,15 @@ document.addEventListener("DOMContentLoaded", () => {
       feederAggregates[i] = { reports: [], status: "Completed", reportCount: 0 };
     }
 
-    // *** Only aggregate "PENDING" items ***
-    getPendingItems().forEach(report => {
+    // Since allReports is strictly PENDING, just iterate it
+    allReports.forEach(report => {
       if (feederAggregates[report.feeder]) {
         feederAggregates[report.feeder].reports.push(report);
         feederAggregates[report.feeder].reportCount++;
       }
     });
 
-    // Determine aggregate status (PENDING or Completed)
+    // Determine aggregate status
     for (const feederId in feederAggregates) {
       feederAggregates[feederId].status = (feederAggregates[feederId].reportCount > 0) ? "PENDING" : "Completed";
     }
@@ -224,8 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function aggregateBarangayData(feederId) {
     const barangayGroups = {};
 
-    // *** Only filter "PENDING" items for this feeder ***
-    getPendingItems()
+    allReports
       .filter(report => report.feeder === feederId)
       .forEach(report => {
         if (!barangayGroups[report.barangay]) {
@@ -235,11 +230,14 @@ document.addEventListener("DOMContentLoaded", () => {
             totalVolume: 0,
             causes: {},
             status: "PENDING",
-            coordinates: null
+            coordinates: null,
+            // Store IDs for easier bulk selection later if needed
+            ids: [] 
           };
         }
         const group = barangayGroups[report.barangay];
         group.reports.push(report);
+        group.ids.push(report.id);
         group.totalVolume += report.volume || 0;
         const cause = report.cause || "Undetermined";
         group.causes[cause] = (group.causes[cause] || 0) + 1;
@@ -248,6 +246,7 @@ document.addEventListener("DOMContentLoaded", () => {
           group.coordinates = `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}`;
         }
       });
+      
       return Object.values(barangayGroups).map(group => {
       let commonCause = "N/A";
       let maxCount = 0;
@@ -258,7 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       return {
-        id: group.barangay,
+        id: group.barangay, // Using Barangay Name as ID for the row in grouping view
         barangay: group.barangay,
         volume: group.totalVolume,
         commonCause: commonCause,
@@ -270,8 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getIndividualReports(barangayName) {
-    // *** Only return "PENDING" items for this barangay ***
-    return getPendingItems().filter(report => report.barangay === barangayName);
+    return allReports.filter(report => report.barangay === barangayName);
   }
 
   // ===================================
@@ -292,6 +290,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.add('hidden');
     sortWithCoordsEl.classList.add('hidden');
+    
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.add('hidden');
+
     resetSelections();
   }
 
@@ -311,6 +312,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.add('hidden');
     sortWithCoordsEl.classList.add('hidden');
+    
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.remove('hidden');
 
     updateTableHeaders();
     applyFiltersAndRender();
@@ -330,6 +333,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     sortWithPicturesEl.classList.remove('hidden');
     sortWithCoordsEl.classList.remove('hidden');
+    
+    if(attachToAnnouncementBtn) attachToAnnouncementBtn.classList.remove('hidden');
 
     updateTableHeaders();
     applyFiltersAndRender();
@@ -356,9 +361,10 @@ document.addEventListener("DOMContentLoaded", () => {
     resetSelections();
   }
 
-  // Make refreshCurrentView globally available for the unified modal system
+  // Make refreshCurrentView globally available
   window.refreshCurrentView = refreshCurrentView;
-    // ===================================
+  
+  // ===================================
   // UI & TABLE RENDERING
   // ===================================
 
@@ -371,31 +377,25 @@ document.addEventListener("DOMContentLoaded", () => {
     let tilesHTML = "";
 
     for (let feederId = 1; feederId <= 14; feederId++) {
-      // Get data from aggregated state or default to 0
       const data = allFeederData[feederId] || { reportCount: 0 };
       const count = data.reportCount;
       const hasOutages = count > 0;
 
-      // --- DYNAMIC STYLING LOGIC ---
       const statusColor = hasOutages ? 'bg-red-500' : 'bg-blue-500';
       const hoverColor = hasOutages ? 'group-hover:bg-red-600' : 'group-hover:bg-blue-600';
       
-      // Badge Pill Style
       const badgeStyle = hasOutages 
         ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/30' 
         : 'bg-gray-50 text-gray-500 border-gray-100 dark:bg-gray-700/30 dark:text-gray-400 dark:border-gray-600';
       
-      // Ping Animation for active outages
       const pingAnimation = hasOutages 
         ? `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>` 
         : '';
       
       const dotColor = hasOutages ? 'bg-red-500' : 'bg-gray-400';
       
-      // Format ID (e.g., "01" instead of "1")
       const formattedId = feederId < 10 ? '0' + feederId : feederId;
 
-      // --- NEW CARD HTML ---
       tilesHTML += `
         <div class="group relative overflow-hidden rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer h-40 w-full feeder-tile"
              data-feeder-id="${feederId}">
@@ -462,6 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <th class="${thClass}">Timestamp</th>
         <th class="${thClass}">Description</th>
         <th class="${thClass}">Status</th>
+        <th class="${thClass}">Contact</th> 
         <th class="${thClass}">Image</th>
         <th class="${thClass}">Coordinates</th>
         <th class="${thClass}">Actions</th>
@@ -543,6 +544,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const hasImages = report.images && report.images.length > 0;
     const hasCoords = report.latitude && report.longitude;
     const coordsText = hasCoords ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : 'N/A';
+    
+    const showContact = report.contact_permission && report.contact_number;
 
     return `
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -550,13 +553,24 @@ document.addEventListener("DOMContentLoaded", () => {
           <input type="checkbox" class="report-checkbox h-4 w-4 text-blue-600 rounded-full focus:ring-blue-500 border-gray-300"
                  data-id="${report.id}" ${isSelected ? 'checked' : ''}>
         </td>
-        <td class="py-3 px-4 font-medium">${report.id}</td>
+        <td class="py-3 px-4 font-medium">${report.id.substring(0, 8)}...</td>
         <td class="py-3 px-4">${reportDate}</td>
         <td class="py-3 px-4 truncate max-w-xs" title="${report.description}">${report.description}</td>
         <td class="py-3 px-4">
           <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor.tag}">
             ${report.status}
           </span>
+        </td>
+        <td class="py-3 px-4">
+          ${showContact ?
+            `<div class="flex items-center space-x-1">
+              <span title="${report.contact_number}">${report.contact_number}</span>
+              <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline copy-contact-btn" data-contact="${report.contact_number}">
+                <span class="material-icons text-sm">content_copy</span>
+              </button>
+            </div>` :
+            '<span class="text-gray-400 italic text-sm">N/A</span>'
+          }
         </td>
         <td class="py-3 px-4">
           ${hasImages ?
@@ -602,10 +616,13 @@ document.addEventListener("DOMContentLoaded", () => {
                        (item.coordinates && item.coordinates.toLowerCase().includes(search));
             }
             if (currentView === 'individuals') {
+                const contactSearch = (item.contact_permission && item.contact_number) ? item.contact_number.includes(search) : false;
+                
                 return item.description.toLowerCase().includes(search) ||
                        String(item.id).includes(search) ||
                        (item.latitude && item.longitude &&
-                        `${item.latitude},${item.longitude}`.includes(search));
+                        `${item.latitude},${item.longitude}`.includes(search)) ||
+                        contactSearch;
             }
             return false;
         });
@@ -634,6 +651,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 return aHas && !bHas ? -1 : !aHas && bHas ? 1 : 0;
             });
             break;
+        case 'with-contact': 
+             if (currentView === 'individuals') {
+                filteredData.sort((a, b) => {
+                    const aHas = a.contact_permission && a.contact_number;
+                    const bHas = b.contact_permission && b.contact_number;
+                    return bHas - aHas; 
+                });
+             }
+             break;
     }
 
     if (!keepPage) currentPage = 1;
@@ -666,7 +692,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function getFilteredData() {
      const search = searchInputEl.value.toLowerCase();
-     let filteredData = [...currentDisplayData]; // Already PENDING items
+     let filteredData = [...currentDisplayData];
      if (search) {
        filteredData = filteredData.filter(item => {
          if (currentView === 'barangays') return item.barangay.toLowerCase().includes(search) || item.commonCause.toLowerCase().includes(search) || (item.coordinates && item.coordinates.toLowerCase().includes(search));
@@ -690,8 +716,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const checkboxes = reportsBody.querySelectorAll('.report-checkbox');
 
     checkboxes.forEach(cb => {
-      // --- FIX: Check view before parseInt ---
-      const id = (currentView === 'barangays') ? cb.dataset.id : cb.dataset.id; // Always treat id as string from dataset
+      const id = cb.dataset.id;
       if (isChecked) {
         selectedItems.add(id);
       } else {
@@ -703,8 +728,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function handleCheckboxChange(e) {
     const checkbox = e.target;
-    // --- FIX: Check view before parseInt ---
-    const id = (currentView === 'barangays') ? checkbox.dataset.id : checkbox.dataset.id; // Always treat id as string from dataset
+    const id = checkbox.dataset.id; 
 
     if (checkbox.checked) {
       selectedItems.add(id);
@@ -716,8 +740,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateSelectedUI() {
     reportsBody.querySelectorAll('.report-checkbox').forEach(cb => {
-      // --- FIX: Check view before parseInt ---
-      const id = (currentView === 'barangays') ? cb.dataset.id : cb.dataset.id; // Always treat id as string from dataset
+      const id = cb.dataset.id;
       cb.checked = selectedItems.has(id);
     });
 
@@ -730,11 +753,243 @@ document.addEventListener("DOMContentLoaded", () => {
       selectAllCheckbox.indeterminate = selectedItems.size > 0 && !allVisibleChecked;
     }
 
-    bulkUpdateBtn.classList.toggle('hidden', selectedItems.size === 0);
+    const hasSelection = selectedItems.size > 0;
+    bulkUpdateBtn.classList.toggle('hidden', !hasSelection);
     bulkUpdateBtn.textContent = `Update Selected (${selectedItems.size})`;
+    
+    if(attachToAnnouncementBtn) {
+        if(!hasSelection) {
+            attachToAnnouncementBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            attachToAnnouncementBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
   }
-    // ===================================
-  // MODAL INTEGRATION WITH UNIFIED SYSTEM
+
+  // ===================================
+  // ATTACH TO ANNOUNCEMENT FUNCTIONALITY
+  // ===================================
+  
+  async function fetchRecentOutages(feederId) {
+      try {
+          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+          const { data, error } = await supabase
+              .from('announcements')
+              .select('*')
+              .eq('feeder_id', feederId)
+              .gte('created_at', twentyFourHoursAgo) 
+              .order('created_at', { ascending: false });
+              
+          if (error) throw error;
+          return data || [];
+      } catch (err) {
+          console.error("Error fetching announcements for attach:", err);
+          return [];
+      }
+  }
+
+  async function showAttachModal(feederId) {
+      const outages = await fetchRecentOutages(feederId);
+      
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      
+      let rowsHTML = '';
+      if (outages.length === 0) {
+          rowsHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No recent announcements found for Feeder ' + feederId + ' (Last 24h)</td></tr>';
+      } else {
+          rowsHTML = outages.map(outage => {
+            const date = new Date(outage.created_at).toLocaleString();
+            let badgeClass = "bg-gray-100 text-gray-800";
+            if(outage.status === 'Reported') badgeClass = "bg-red-100 text-red-800";
+            if(outage.status === 'Ongoing') badgeClass = "bg-blue-100 text-blue-800";
+            if(outage.status === 'Completed') badgeClass = "bg-green-100 text-green-800";
+
+            // Determine display location/areas
+            let areasDisplay = 'N/A';
+            if(Array.isArray(outage.areas_affected)) {
+                areasDisplay = outage.areas_affected.join(', ');
+            } else if(outage.location) {
+                areasDisplay = outage.location;
+            }
+
+            return `
+              <tr class="hover:bg-blue-50 cursor-pointer transition border-b border-gray-100 last:border-0 outage-row" data-id="${outage.id}">
+                  <td class="px-4 py-3">
+                      <input type="radio" name="selectedOutage" value="${outage.id}" class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                  </td>
+                  <td class="px-4 py-3 font-medium text-gray-900">${outage.cause || 'Unknown Cause'}</td>
+                  <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title="${areasDisplay}">${areasDisplay}</td>
+                  <td class="px-4 py-3 text-sm text-gray-600">Feeder ${outage.feeder_id || 'N/A'}</td>
+                  <td class="px-4 py-3">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${badgeClass}">
+                        ${outage.status}
+                      </span>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-500">${date}</td>
+              </tr>
+            `;
+          }).join('');
+      }
+
+      modal.innerHTML = `
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl overflow-hidden transform transition-all">
+          <div class="flex justify-between items-center p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+            <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <span class="material-icons text-blue-500">link</span>
+                Attach to Announcement
+            </h3>
+            <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal">
+                <span class="material-icons">close</span>
+            </button>
+          </div>
+          
+          <div class="p-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select an existing announcement from the last 24 hours to attach the selected report(s) to.
+            </p>
+            
+            <div class="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                            <th class="w-8 px-4 py-2"></th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cause</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Affected Areas</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Feeder</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200">
+                        ${rowsHTML}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+          
+          <div class="flex justify-end gap-3 p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+            <button type="button" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 close-modal">
+                Cancel
+            </button>
+            <button type="button" id="confirmAttachBtn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                Attach Reports
+            </button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+
+      modal.querySelectorAll('.close-modal').forEach(b => b.addEventListener('click', () => modal.remove()));
+      modal.querySelectorAll('.outage-row').forEach(row => {
+          row.addEventListener('click', (e) => {
+             if(e.target.type === 'radio') return;
+             const radio = row.querySelector('input[type="radio"]');
+             if(radio) radio.checked = true;
+          });
+      });
+
+      const confirmBtn = modal.querySelector('#confirmAttachBtn');
+      confirmBtn.addEventListener('click', async () => {
+          const selectedRadio = modal.querySelector('input[name="selectedOutage"]:checked');
+          
+          if(!selectedRadio) {
+              window.showErrorPopup ? window.showErrorPopup("Please select an announcement.") : alert("Please select an announcement.");
+              return;
+          }
+          
+          // --- RESOLVE DATA ---
+          let reportIdsToAttach = [];
+          let barangaysToAttach = [];
+          
+          if (currentView === 'barangays') {
+             // selectedItems = Set of Barangay Names
+             const selectedBarangays = Array.from(selectedItems);
+             
+             // Find all PENDING reports for these barangays in the current feeder
+             const reportsToAttach = allReports.filter(r => 
+                 r.feeder === currentFeederId && 
+                 selectedBarangays.includes(r.barangay)
+             );
+             
+             if(reportsToAttach.length === 0) {
+                 alert("No pending reports found for selected barangays.");
+                 return;
+             }
+             reportIdsToAttach = reportsToAttach.map(r => r.id);
+             barangaysToAttach = [...new Set(reportsToAttach.map(r => r.barangay))];
+             
+          } else {
+             // selectedItems = Set of Report IDs
+             reportIdsToAttach = Array.from(selectedItems);
+             
+             // Derive Barangays from these IDs
+             const reportsToAttach = allReports.filter(r => reportIdsToAttach.includes(r.id));
+             barangaysToAttach = [...new Set(reportsToAttach.map(r => r.barangay))];
+          }
+
+          const announcementId = selectedRadio.value;
+          
+          confirmBtn.textContent = "Attaching...";
+          confirmBtn.disabled = true;
+          
+          try {
+             // 1. Fetch current announcement data
+             const { data: currentAnnouncement, error: fetchError } = await supabase
+                 .from('announcements')
+                 .select('report_ids, areas_affected') // Select BOTH columns
+                 .eq('id', announcementId)
+                 .single();
+
+             if (fetchError) throw fetchError;
+
+             // 2. Merge existing IDs with new IDs (avoid duplicates)
+             const existingIds = currentAnnouncement.report_ids || [];
+             const updatedReportIds = [...new Set([...existingIds, ...reportIdsToAttach])];
+
+             // 3. Merge existing Areas with new Areas (avoid duplicates)
+             const existingAreas = currentAnnouncement.areas_affected || [];
+             const updatedAreas = [...new Set([...existingAreas, ...barangaysToAttach])];
+
+             // 4. Update the announcement (Update BOTH columns)
+             const { error: updateError } = await supabase
+                 .from('announcements')
+                 .update({ 
+                     report_ids: updatedReportIds,
+                     areas_affected: updatedAreas
+                 })
+                 .eq('id', announcementId);
+
+             if (updateError) throw updateError;
+
+             // 5. Update the actual reports to status 'Reported' so they are cleared from Pending view
+             const { error: reportUpdateError } = await supabase
+                 .from('reports')
+                 .update({ 
+                     status: 'Reported' 
+                 })
+                 .in('id', reportIdsToAttach);
+                 
+             if(reportUpdateError) throw reportUpdateError;
+             
+             window.showSuccessPopup ? window.showSuccessPopup("Reports successfully attached!") : alert("Reports Attached!");
+             modal.remove();
+             refreshCurrentView(); // Reload list
+             
+          } catch (err) {
+              console.error("Attach failed:", err);
+              window.showErrorPopup ? window.showErrorPopup("Failed to attach reports: " + err.message) : alert("Failed: " + err.message);
+              confirmBtn.textContent = "Attach Reports";
+              confirmBtn.disabled = false;
+          }
+      });
+  }
+
+
+  // ===================================
+  // MODAL INTEGRATION
   // ===================================
 
   function hasCoords(report) { return report && report.latitude && report.longitude; }
@@ -748,7 +1003,6 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const coordsText = hasCoords(report) ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : '';
     
-    // FIXED: Better image display with error handling
     let imagesHTML = '';
     if (report.images && report.images.length > 0) {
       imagesHTML = `
@@ -771,7 +1025,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.innerHTML = `
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div class="flex justify-between items-center p-6 border-b dark:border-gray-700">
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Report Details #${report.id}</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Report Details #${report.id.substring(0,8)}</h3>
           <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 close-modal"><span class="material-icons">close</span></button>
         </div>
         <div class="p-6 space-y-4 overflow-y-auto">
@@ -780,6 +1034,12 @@ document.addEventListener("DOMContentLoaded", () => {
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${STATUS_COLORS[report.status].tag}">${report.status}</span></div>
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Volume</label><p class="text-lg text-gray-900 dark:text-white">${report.volume || 'N/A'}</p></div>
             <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Cause</label><p class="text-lg text-gray-900 dark:text-white">${report.cause || 'Undetermined'}</p></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact</label><p class="text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                ${(report.contact_permission && report.contact_number) 
+                    ? `<span>${report.contact_number}</span> 
+                       <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline copy-contact-btn" data-contact="${report.contact_number}"><span class="material-icons text-sm">content_copy</span></button>` 
+                    : '<span class="text-gray-400 italic text-sm">Not Available/Hidden</span>'}
+            </p></div>
           </div>
           <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label><p class="text-gray-900 dark:text-white mt-1">${report.description || 'No description provided'}</p></div>
           <div>
@@ -803,21 +1063,18 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.querySelectorAll('.close-modal').forEach(btn => btn.addEventListener('click', () => modal.remove()));
     modal.querySelector('.update-from-details').addEventListener('click', function() {
       const reportId = this.dataset.id; 
-      selectedItems.clear(); 
-      selectedItems.add(reportId); 
-      modal.remove(); 
       window.showUpdateModal([reportId], 'reports', {
-        currentView: currentView,
+        currentView: 'individuals', // FORCE Individual view for single items
         currentFeederId: currentFeederId,
         currentBarangay: currentBarangay
       });
+      modal.remove(); 
     });
     modal.querySelectorAll('.copy-coords-btn').forEach(btn => btn.addEventListener('click', handleCopyCoords));
+    modal.querySelectorAll('.copy-contact-btn').forEach(btn => btn.addEventListener('click', handleCopyContact));
     
-    // FIXED: Only add click listeners to images that actually loaded
     modal.querySelectorAll('.view-popup-image').forEach((img, idx) => {
       img.addEventListener('click', () => {
-        // Filter out images that failed to load
         const validImages = report.images.filter((_, index) => {
           const imgElement = modal.querySelector(`[data-index="${index}"]`);
           return imgElement && imgElement.naturalWidth > 0;
@@ -876,7 +1133,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.target === modal) modal.remove(); // click outside to close
     });
 
-    // Add keyboard navigation
     const handleKeydown = (e) => {
       if (e.key === 'Escape') modal.remove();
       if (e.key === 'ArrowLeft' && currentIndex > 0) {
@@ -911,24 +1167,79 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (currentView === 'barangays') showFeederTilesView();
     });
 
-    // --- NEW EVENT LISTENER FOR ANNOUNCEMENT BUTTON ---
-    // Opens the unified modal without selecting specific reports (empty array)
-    createAnnouncementBtn.addEventListener("click", () => {
-      window.showUpdateModal([], 'reports', {
-          currentView: currentView,
-          currentFeederId: currentFeederId,
-          currentBarangay: currentBarangay,
-          manualCreation: true // ✅ FIXED: This flag was missing, preventing the modal from opening
-      });
-    });
+    // --- Create Announcement Button (Manual) ---
+    if(createAnnouncementBtn) {
+        createAnnouncementBtn.addEventListener("click", () => {
+          window.showUpdateModal([], 'reports', {
+              currentView: currentView,
+              currentFeederId: currentFeederId,
+              currentBarangay: currentBarangay,
+              manualCreation: true 
+          });
+        });
+    }
 
-    // Updated bulk update to use unified modal system
+    // --- Attach To Announcement Button ---
+    if(attachToAnnouncementBtn) {
+        attachToAnnouncementBtn.addEventListener("click", () => {
+            if(selectedItems.size === 0) {
+                alert("Please select at least one pending report to attach.");
+                return;
+            }
+            if(!currentFeederId) {
+                alert("Please select a feeder first.");
+                return;
+            }
+            showAttachModal(currentFeederId);
+        });
+    }
+
+    // --- BULK UPDATE / CREATE ANNOUNCEMENT (STRICT FIX) ---
     bulkUpdateBtn.addEventListener('click', () => {
       if (selectedItems.size === 0) return;
-      window.showUpdateModal(Array.from(selectedItems), 'reports', {
-        currentView: currentView,
+
+      let reportIdsToUpdate = [];
+      let relatedBarangays = [];
+
+      // CASE 1: We are in the "Feeder/Barangay Group" View
+      // Logic: User checked a Barangay, so we want ALL pending reports in that Barangay.
+      if (currentView === 'barangays') {
+          const selectedNames = Array.from(selectedItems); // These are Barangay Names
+          relatedBarangays = selectedNames;
+          
+          // Find all pending reports belonging to these Barangays
+          const relatedReports = allReports.filter(r => 
+              r.feeder === currentFeederId && 
+              r.status === 'PENDING' && 
+              selectedNames.includes(r.barangay)
+          );
+          
+          reportIdsToUpdate = relatedReports.map(r => r.id);
+          
+          if (reportIdsToUpdate.length === 0) {
+              alert("No pending reports found for the selected barangays.");
+              return;
+          }
+      } 
+      
+      // CASE 2: We are in the "Individual Reports" View (The fix you need)
+      // Logic: User checked specific boxes, so we ONLY want those specific IDs.
+      else if (currentView === 'individuals') {
+          reportIdsToUpdate = Array.from(selectedItems); // These are specific Report IDs
+          
+          // Just get the barangay names for context (to fill the "Areas Affected" field)
+          const reports = allReports.filter(r => reportIdsToUpdate.includes(r.id));
+          relatedBarangays = [...new Set(reports.map(r => r.barangay))];
+      }
+
+      console.log(`Bulk Update: View=${currentView}, IDs Selected:`, reportIdsToUpdate);
+
+      // Pass the STRICT IDs to the modal
+      window.showUpdateModal(reportIdsToUpdate, 'reports', {
+        currentView: 'individuals', // Force 'individuals' mode so shared.js treats the array as IDs
         currentFeederId: currentFeederId,
-        currentBarangay: currentBarangay
+        currentBarangay: currentBarangay,
+        affectedBarangays: relatedBarangays // Pass explicitly so modal can fill 'areas_affected'
       });
     });
 
@@ -938,10 +1249,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const btn = target.closest('button'); 
       if (!btn) return;
 
-      const id = btn.dataset.id; // Get id from the button
+      const id = btn.dataset.id; 
 
       if (btn.classList.contains('copy-coords-btn')) {
           handleCopyCoords(e);
+          return;
+      }
+      
+      if (btn.classList.contains('copy-contact-btn')) {
+          handleCopyContact(e);
           return;
       }
 
@@ -949,20 +1265,27 @@ document.addEventListener("DOMContentLoaded", () => {
         if (btn.classList.contains('view-barangay-btn')) {
           showIndividualView(id);
         } else if (btn.classList.contains('update-item-btn')) {
-          selectedItems.clear(); 
-          selectedItems.add(id); 
-          window.showUpdateModal([id], 'reports', {
-            currentView: currentView,
-            currentFeederId: currentFeederId,
-            currentBarangay: currentBarangay
-          });
+            // FIX: Resolve single barangay update to its report IDs
+            const reportsInBarangay = allReports.filter(r => 
+                r.feeder === currentFeederId && 
+                r.status === 'PENDING' && 
+                r.barangay === id // id here is barangay name
+            );
+            const ids = reportsInBarangay.map(r => r.id);
+            const areas = [id];
+
+            // Use the same safe calling convention as Bulk Update
+            window.showUpdateModal(ids, 'reports', {
+                currentView: 'individuals', // Override
+                currentFeederId: currentFeederId,
+                currentBarangay: currentBarangay,
+                affectedBarangays: areas
+            });
         }
       } else if (currentView === 'individuals') {
         if (btn.classList.contains('update-item-btn')) {
-          selectedItems.clear(); 
-          selectedItems.add(id); 
           window.showUpdateModal([id], 'reports', {
-            currentView: currentView,
+            currentView: 'individuals',
             currentFeederId: currentFeederId,
             currentBarangay: currentBarangay
           });
@@ -991,15 +1314,11 @@ document.addEventListener("DOMContentLoaded", () => {
     prevPageBtn.addEventListener('click', () => changePage('prev'));
     nextPageBtn.addEventListener('click', () => changePage('next'));
 
-    // Add keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      // Refresh with F5
       if (e.key === 'F5') {
         e.preventDefault();
         refreshCurrentView();
       }
-      
-      // Escape key to go back
       if (e.key === 'Escape') {
         if (currentView === 'individuals') {
           showBarangayView(currentFeederId);
