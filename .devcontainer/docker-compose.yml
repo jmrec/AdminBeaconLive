@@ -10,10 +10,12 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ..:/app:cached
-      - vscode-extension:/root/.vscode-server-insiders
     command: sleep infinity
     networks:
       - beacon-dev
 
 volumes:
-  vscode-extension:
+  vscode_extensions:
+    external: true
+  vscode_data:
+    external: true
