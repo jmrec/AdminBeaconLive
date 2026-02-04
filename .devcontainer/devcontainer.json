@@ -4,6 +4,8 @@
     "service": "ian_admin",
     "workspaceFolder": "/app",
     "mounts": [
+        "source=vscode_extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
+        "source=vscode_data,target=/home/vscode/.vscode-server/data,type=volume",
         "source=${localEnv:HOME}/.gitconfig,target=/home/debian/.gitconfig,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.ssh/id_ed25519,target=/home/debian/.ssh/id_ed25519,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.ssh/id_ed25519_signing,target=/home/debian/.ssh/id_ed25519_signing,type=bind,consistency=cached",
