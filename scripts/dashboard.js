@@ -1,4 +1,34 @@
 // DASHBOARD.JS - Final Fixes: Robust Forecast Data & User-Centric Analytics
+async function getRootCauseData() {
+    if (!window.supabase) {
+      console.error("Supabase client not found.");
+      return;
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from("reports")
+            .select("description");
+
+        if (error) throw error;
+        const descriptions = data.map((r) => r.description).filter(Boolean);
+
+        const response = await fetch("https://analysis.jmcodes.com/reports/batch/rca", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ descriptions: descriptions })
+        });
+
+        if (!response.ok) throw new Error("Failed to fetch RCA analysis");
+
+        const analysisResult = await response.json(); 
+        
+        return analysisResult.top_findings;
+    } catch (err) {
+        console.error("RCA Error:", err.message);
+        return [];
+    }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- Global State ---
@@ -588,13 +618,23 @@ document.addEventListener("DOMContentLoaded", () => {
         .slice(0, 5);
 
     if (rootCauseInstance) rootCauseInstance.destroy();
+    const findings = await getRootCauseData();
+
+    // Transform API data for Chart.js
+    // labels: The root cause string
+    // data: The confidence score (or you could count occurrences if the API returned raw data)
+    const labels = findings.map(f => f.root_cause);
+    const dataPoints = findings.map(f => f.confidence_score);
+
+    if (rootCauseInstance) rootCauseInstance.destroy();
+    
     rootCauseInstance = new Chart(rootCtx, {
         type: "bar",
         data: {
-            labels: sortedCauses.map((i) => i[0]),
+            labels: labels,
             datasets: [{
-                label: "Incidents",
-                data: sortedCauses.map((i) => i[1]),
+                label: "Confidence Score",
+                data: dataPoints,
                 backgroundColor: "#F59E0B",
                 borderRadius: 4,
             }],
@@ -604,22 +644,22 @@ document.addEventListener("DOMContentLoaded", () => {
             responsive: true,
             maintainAspectRatio: false,
             plugins: { 
-              legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label: function(context) {
-                    let label = context.dataset.label || '';
-                    if (label) label += ': ';
-                    let value = context.parsed.x;
-                    let total = context.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
-                    let percentage = ((value / total) * 100).toFixed(1) + "%";
-                    return label + value + " (" + percentage + ")";
-                  }
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.parsed.x;
+                            return `Confidence: ${(value * 100).toFixed(1)}%`;
+                        }
+                    }
                 }
-              }
             },
             scales: {
-                x: { ticks: { color: textColor } },
+                x: { 
+                    beginAtZero: true,
+                    max: 1, // Since confidence scores are usually 0-1
+                    ticks: { color: textColor } 
+                },
                 y: { ticks: { color: textColor } },
             },
         },
@@ -755,58 +795,61 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- D. Sentiment ---
     const sentimentContainer = document.getElementById("root-cause-chart-container");
     if (sentimentContainer) {
-        try {
-            const { data: reportData, error: reportError } = await supabase
-                .from('reports')
-                .select('cause, sentiment_score')
-                .not('sentiment_score', 'is', null) 
-                .limit(100);
+      try {
+        const { data: reportData, error: reportError } = await supabase
+          .from("reports")
+          .select("cause, sentiment_score")
+          .not("sentiment_score", "is", null)
 
-            if (reportError) throw reportError;
+        if (reportError) throw reportError;
 
-            if (!reportData || reportData.length === 0) {
-                sentimentContainer.innerHTML = `<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#888;font-size:0.8rem;">No sentiment data available</div>`;
-            } else {
-                const groups = {}; 
-                reportData.forEach(r => {
-                    const cause = r.cause || 'Other';
-                    if (!groups[cause]) groups[cause] = { total: 0, count: 0 };
-                    groups[cause].total += r.sentiment_score;
-                    groups[cause].count += 1;
-                });
-                const sortedSentiment = Object.keys(groups).map(cause => {
-                    const avg = groups[cause].total / groups[cause].count;
-                    return { cause, score: avg };
-                }).sort((a, b) => a.score - b.score);
+        const groups = {};
+        reportData.forEach((r) => {
+          const label = r.cause || "Other";
+          if (!groups[label]) groups[label] = { total: 0, count: 0 };
+          groups[label].total += r.sentiment_score;
+          groups[label].count += 1;
+        });
 
-                sentimentDataForPDF = sortedSentiment;
-                let html = `<div style="display:flex; flex-direction:column; gap:12px; padding-bottom:10px;">`;
-                sortedSentiment.forEach(item => {
-                    const severity = Math.abs(Math.min(item.score, 0)); 
-                    const width = Math.min((severity / 10) * 100, 100); 
-                    let color = '#2ecc71'; 
-                    if (item.score <= -5) color = '#e74c3c'; 
-                    else if (item.score < 0) color = '#f1c40f'; 
-                    html += `
-                        <div style="width:100%;">
-                            <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:4px; color:${textColor}; font-weight:600;">
-                                <span>${item.cause}</span>
-                                <span style="color:${color}">${item.score.toFixed(1)}</span>
-                            </div>
-                            <div style="width:100%; background:#e5e7eb; height:6px; border-radius:3px; overflow:hidden;">
-                                <div style="width:${width}%; background:${color}; height:100%;"></div>
-                            </div>
-                        </div>
-                    `;
-                });
-                html += `</div>`;
-                sentimentContainer.innerHTML = html;
-            }
-        } catch (err) {
-            console.warn("Sentiment loading failed:", err);
-            sentimentContainer.innerHTML = `<div style="color:#aaa; font-size:0.8rem; text-align:center; padding-top:20px;">Analysis unavailable</div>`;
-        }
+        const sortedSentiment = Object.keys(groups)
+        .map((label) => ({
+          cause: label,
+          score: groups[label].total / groups[label].count,
+        }))
+        .sort((a, b) => a.score - b.score);
+
+        let html = `
+            <div style="padding: 10px 5px;">
+                <div style="display:flex; flex-direction:column; gap:18px;">
+        `;
+
+        sortedSentiment.forEach((item) => {
+          let color = "#10B981";
+          if (item.score <= -10) color = "#EF4444";
+          else if (item.score < 0) color = "#F59E0B";
+
+          // Width calculation (normalized against 20 as the max negative scale)
+          const width = Math.min((Math.abs(item.score) / 20) * 100, 100);
+
+          html += `
+            <div style="width:100%;">
+              <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px; color:#F3F4F6; font-weight:600;">
+                <span>${item.cause}</span>
+                <span style="color:${color}">${item.score.toFixed(1)}</span>
+              </div>
+              <div style="width:100%; background: #374151; height:8px; border-radius:10px; overflow:hidden;">
+                <div style="width:${width}%; background:${color}; height:100%; border-radius:10px;"></div>
+              </div>
+            </div>
+          `;
+        });
+
+        sentimentContainer.innerHTML = html
+    } catch (err) {
+        console.warn("Sentiment loading failed:", err);
+        sentimentContainer.innerHTML = `<div style="color:#aaa; font-size:0.8rem; text-align:center; padding-top:20px;">Analysis unavailable</div>`;
     }
+  }
 
     // 4.2 FETCH: Historical Data (For Forecasts ONLY - REVISED)
     // Fetch last 1000 records regardless of date to ensure statistical sample

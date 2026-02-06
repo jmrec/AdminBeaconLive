@@ -465,6 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <th class="${thClass}">Contact</th> 
         <th class="${thClass}">Image</th>
         <th class="${thClass}">Coordinates</th>
+        <th class="${thClass}">Sentiment (Score)</th>
         <th class="${thClass}">Actions</th>
       `;
     }
@@ -547,6 +548,10 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const showContact = report.contact_permission && report.contact_number;
 
+    let category = "Neutral";
+    if (report.sentiment_score > 25) category = "Positive";
+    else if (report.sentiment_score < -25) category = "Negative";
+
     return `
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
         <td class="py-3 px-4">
@@ -588,6 +593,9 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>` :
             'N/A'
           }
+        </td>
+        <td class="py-3 px-4">
+          ${category} (${report.sentiment_score.toFixed(1)})
         </td>
         <td class="py-3 px-4 whitespace-nowrap">
           <button type="button" class="px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-100 rounded-full hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800 transition mr-2 view-details-btn" data-id="${report.id}">Details</button>
