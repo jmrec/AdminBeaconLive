@@ -1,15 +1,17 @@
 {
     "name": "Ian Admin",
     "dockerComposeFile": "docker-compose.yml",
-    "service": "ian_admin",
-    "workspaceFolder": "/app",
+    "service": "ian-admin",
+    "workspaceFolder": "/workspace",
+    "remoteUser": "node",
+    "updateRemoteUserUID": true,
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {}
+    },
     "mounts": [
-        "source=vscode_extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
-        "source=vscode_data,target=/home/vscode/.vscode-server/data,type=volume",
-        "source=${localEnv:HOME}/.gitconfig,target=/home/debian/.gitconfig,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.ssh/id_ed25519,target=/home/debian/.ssh/id_ed25519,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.ssh/id_ed25519_signing,target=/home/debian/.ssh/id_ed25519_signing,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.ssh/id_ed25519_signing.pub,target=/home/debian/.ssh/id_ed25519_signing.pub,type=bind,consistency=cached"
+        "source=vscode_extensions,target=/home/node/.vscode-server/extensions,type=volume",
+        "source=vscode_data,target=/home/node/.vscode-server/data,type=volume",
+        "source=${localEnv:HOME}/.ssh/id_ed25519_signing.pub,target=/home/node/.ssh/id_ed25519_signing.pub,type=bind,consistency=cached"
     ],
     "forwardPorts": [3060],
     "customizations": {
@@ -34,5 +36,6 @@
                 "vue.features.splitEditors.enabled": true
             }
         }
-    }
+    },
+    "postCreateCommand": "sudo chown -R node:node /home/node && git config --global gpg.format ssh && git config --global user.signingkey /home/node/.ssh/id_ed25519_signing.pub && git config --global commit.gpgsign true"
 }

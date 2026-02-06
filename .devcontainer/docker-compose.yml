@@ -3,13 +3,13 @@ networks:
     external: true
 
 services:
-  ian_admin:
-    container_name: ian_admin
+  ian-admin:
+    container_name: ian-admin
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ..:/app:cached
+      - ..:/workspace:cached
     command: sleep infinity
     networks:
       - beacon-dev
