@@ -547,18 +547,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const coordsText = hasCoords ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : 'N/A';
     
     const showContact = report.contact_permission && report.contact_number;
+    const isUrgent = report.is_urgent;
+
+    const rowBackgroundClass = isUrgent 
+        ? 'bg-red-100 dark:bg-red-400/20 hover:bg-red-100 dark:hover:bg-red-400/30' 
+        : 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
 
     let category = "Neutral";
     if (report.sentiment_score > 25) category = "Positive";
     else if (report.sentiment_score < -25) category = "Negative";
 
     return `
-      <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+      <tr class="${rowBackgroundClass} transition-colors duration-150">
         <td class="py-3 px-4">
           <input type="checkbox" class="report-checkbox h-4 w-4 text-blue-600 rounded-full focus:ring-blue-500 border-gray-300"
                  data-id="${report.id}" ${isSelected ? 'checked' : ''}>
         </td>
-        <td class="py-3 px-4 font-medium">${report.id.substring(0, 8)}...</td>
+        <td class="py-3 px-4 font-medium flex items-center space-x-2">
+            ${isUrgent ? `<span class="text-red-600 material-icons text-sm" title="Urgent">priority_high</span>` : ''}
+            <span>${report.id.substring(0, 8)}...</span>
+        </td>
         <td class="py-3 px-4">${reportDate}</td>
         <td class="py-3 px-4 truncate max-w-xs" title="${report.description}">${report.description}</td>
         <td class="py-3 px-4">
