@@ -13,7 +13,7 @@ async function getRootCauseData() {
         if (error) throw error;
         const descriptions = data.map((r) => r.description).filter(Boolean);
 
-        const response = await fetch("https://analysis.jmcodes.com/reports/batch/rca", {
+        const response = await fetch("https://analysis.jmrecondo.com/reports/batch/rca", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ descriptions: descriptions })
