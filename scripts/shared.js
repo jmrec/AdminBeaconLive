@@ -220,7 +220,6 @@ try {
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Affected Areas <span class="text-blue-600 dark:text-blue-400">(${areaInfoHTML})</span></label>
-          ${allBarangaysInFeeder.length > 0 ? `<div class="flex items-center mb-3"><input type="checkbox" id="selectAllBarangays" class="h-4 w-4 text-blue-600"><label for="selectAllBarangays" class="ml-2 text-sm text-gray-700 dark:text-gray-300">Select All</label></div>` : ''}
           <div id="areasButtonContainer" class="flex flex-wrap gap-2 p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50 min-h-[40px] max-h-32 overflow-y-auto">${areaButtonsHTML}</div>
         </div>
         <div>
