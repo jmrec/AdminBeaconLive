@@ -6,6 +6,7 @@
   <title>BEACON Dashboard</title>
 
   <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <link rel="manifest" href="manifest.json" />
 
   <script>
@@ -350,88 +351,100 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
           <!-- Outages per Feeder -->
-          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
-            <div class="flex justify-between items-center mb-4">
-              <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
-                Outages per Feeder
-              </h4>
-              <div class="relative">
-                <button id="feederFilterBtn"
-                        class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-medium flex items-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                  <span class="material-icons text-xs">filter_list</span>
-                  Filter
+          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group">
+            <div class="flex justify-between items-start mb-4">
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Outages per Feeder
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Incident distribution across active feeder lines
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                
+                <button onclick="downloadChartAsImage('feederChartCanvas', 'outages_per_feeder')" 
+                        class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                        title="Download PNG">
+                  <span class="material-icons text-sm">download</span>
                 </button>
-                <div id="feederFilterPopup"
-                     class="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 hidden">
-                  <div class="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h5 class="font-semibold text-gray-800 dark:text-gray-200">Filter by Feeder</h5>
-                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Select feeders to display
-                    </p>
-                  </div>
-                  <div class="flex justify-between items-center p-3 border-b border-gray-200 dark:border-gray-700">
-                    <button id="feederSelectAll"
-                            class="text-blue-600 dark:text-blue-400 text-sm font-medium hover:text-blue-700 dark:hover:text-blue-300 transition-colors">
-                      Select All
-                    </button>
-                    <button id="feederClear"
-                            class="text-red-600 dark:text-red-400 text-sm font-medium hover:text-red-700 dark:hover:text-red-300 transition-colors">
-                      Clear All
-                    </button>
-                  </div>
-                  <div class="max-h-60 overflow-y-auto p-2">
-                    <div id="feederList" class="space-y-1"></div>
-                  </div>
-                  <div class="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-lg">
-                    <button id="feederApply"
-                            class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-sm font-medium transition-colors">
-                      Apply Filters
-                    </button>
+
+                <div class="relative">
+                  <button id="feederFilterBtn"
+                          class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-medium flex items-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    <span class="material-icons text-xs">filter_list</span>
+                    Filter
+                  </button>
+                  
+                  <div id="feederFilterPopup" class="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 hidden">
+                    <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                      <h5 class="font-semibold text-gray-800 dark:text-gray-200">Filter by Feeder</h5>
+                    </div>
+                    <div class="max-h-60 overflow-y-auto p-2">
+                      <div id="feederList" class="space-y-1"></div>
+                    </div>
+                    <div class="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-lg">
+                      <button id="feederApply" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-sm font-medium">Apply Filters</button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+
             <div class="chart-wrapper h-72 w-full relative">
               <canvas id="feederChartCanvas" class="w-full h-full"></canvas>
             </div>
-            <p id="feederChartLabel" class="mt-auto text-xs text-gray-400 text-center">
+            
+            <p id="feederChartLabel" class="mt-auto text-xs text-gray-400 text-center pt-4">
               All feeders selected
             </p>
           </div>
 
           <!-- Restoration Time -->
-          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
+          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group relative">
             <div class="flex justify-between items-center mb-4">
-              <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
-                Avg. Restoration Time (Hours)
-              </h4>
-              <div class="relative">
-                <button id="restorationFilterBtn"
-                        class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-medium flex items-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                  <span class="material-icons text-xs">filter_list</span>
-                  Filter
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Avg. Restoration Time (Hours)
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Efficiency tracking of repair teams per feeder line
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="downloadChartAsImage('restorationChartCanvas', 'Restoration_Time')" 
+                        class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                        title="Download PNG">
+                  <span class="material-icons text-sm">download</span>
                 </button>
-                <div id="restorationFilterPopup"
-                     class="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 hidden">
-                  <div class="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h5 class="font-semibold text-gray-800 dark:text-gray-200">Filter by Feeder</h5>
-                  </div>
-                  <div class="flex justify-between items-center p-3 border-b border-gray-200 dark:border-gray-700">
-                    <button id="restorationSelectAll" class="text-blue-600 text-sm font-medium">
-                      Select All
-                    </button>
-                    <button id="restorationClear" class="text-red-600 text-sm font-medium">
-                      Clear All
-                    </button>
-                  </div>
-                  <div class="max-h-60 overflow-y-auto p-2">
-                    <div id="restorationFeederList" class="space-y-1"></div>
-                  </div>
-                  <div class="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-lg">
-                    <button id="restorationApply"
-                            class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-sm font-medium">
-                      Apply Filters
-                    </button>
+                <div class="relative">
+                  <button id="restorationFilterBtn"
+                          class="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-medium flex items-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    <span class="material-icons text-xs">filter_list</span>
+                    Filter
+                  </button>
+                  <div id="restorationFilterPopup"
+                      class="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 hidden">
+                    <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                      <h5 class="font-semibold text-gray-800 dark:text-gray-200">Filter by Feeder</h5>
+                    </div>
+                    <div class="flex justify-between items-center p-3 border-b border-gray-200 dark:border-gray-700">
+                      <button id="restorationSelectAll" class="text-blue-600 text-sm font-medium">
+                        Select All
+                      </button>
+                      <button id="restorationClear" class="text-red-600 text-sm font-medium">
+                        Clear All
+                      </button>
+                    </div>
+                    <div class="max-h-60 overflow-y-auto p-2">
+                      <div id="restorationFeederList" class="space-y-1"></div>
+                    </div>
+                    <div class="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-lg">
+                      <button id="restorationApply"
+                              class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-sm font-medium">
+                        Apply Filters
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -449,47 +462,86 @@
             Advanced Metrics
           </h3>
 
-          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
-            <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide mb-4">
-              Root Cause Analysis
-            </h4>
+          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group relative">
+            <div class="flex justify-between items-center mb-4">
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Root Cause Analysis
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Top reasons for outages
+                </p>
+              </div>
+              <button onclick="downloadChartAsImage('rootCauseChart', 'root_cause_analysis')" 
+                      class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                      title="Download PNG">
+                <span class="material-icons text-sm">download</span>
+              </button>
+            </div>
             <div class="h-64 w-full relative">
               <canvas id="rootCauseChart" class="w-full h-full"></canvas>
             </div>
-            <p class="text-xs text-gray-400 mt-2 text-center">
-              Top reasons for outages
-            </p>
           </div>
 
-          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
-            <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide mb-4">
-              Barangays with Most Reports
-            </h4>
+          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group relative">
+            <div class="flex justify-between items-center mb-4">
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Barangays with Most Reports
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Frequency of outages per area
+                </p>
+              </div>
+              <button onclick="downloadChartAsImage('barangayImpactChart', 'barangays_with_most_reports')" 
+                      class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                      title="Download PNG">
+                <span class="material-icons text-sm">download</span>
+              </button>
+            </div>
             <div class="h-64 w-full relative">
               <canvas id="barangayImpactChart" class="w-full h-full"></canvas>
             </div>
-            <p class="text-xs text-gray-400 mt-2 text-center">
-              Frequency of outages per area
-            </p>
           </div>
 
-          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
-            <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide mb-4">
-              Peak Outage Times
-            </h4>
+          <div class="lg:col-span-3 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group relative">
+            <div class="flex justify-between items-center mb-4">
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Peak Outage Times
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Common hours when outages occur
+                </p>
+              </div>
+              <button onclick="downloadChartAsImage('peakTimeChart', 'peak_outage_times')" 
+                      class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                      title="Download PNG">
+                <span class="material-icons text-sm">download</span>
+              </button>
+            </div>
             <div class="h-64 w-full relative">
               <canvas id="peakTimeChart" class="w-full h-full"></canvas>
             </div>
-            <p class="text-xs text-gray-400 mt-2 text-center">
-              Bubble size indicates outage frequency
-            </p>
           </div>
 
           <!-- REPLACEMENT: Root Cause Sentiment Analysis Card -->
-          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
-            <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide mb-4">
-              Root Cause Sentiment Analysis
-            </h4>
+          <div class="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col group relative">
+            <div class="flex justify-between items-center mb-4">
+              <div>
+                <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
+                  Root Cause Sentiment Analysis
+                </h4>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Sentiment distribution of root cause descriptions
+                </p>
+              </div>
+              <button onclick="downloadChartAsImage('root-cause-chart-container', 'root_cause_sentiment')" 
+                      class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                      title="Download PNG">
+                <span class="material-icons text-sm">download</span>
+              </button>
+            </div>
             <div class="h-64 w-full relative">
               <div id="root-cause-chart-container" class="w-full h-full overflow-y-auto pr-2">
                 <div class="flex items-center justify-center h-full text-gray-400 text-xs">
@@ -518,14 +570,24 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <!-- Feeder Risk Forecast -->
-              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="flex items-center gap-2">
-                    <span class="material-icons text-blue-500 text-xl">electrical_services</span>
-                    <h5 class="font-semibold text-gray-700 dark:text-gray-200 text-sm uppercase tracking-wide">
-                      Feeder Risk Forecast
-                    </h5>
+              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col group relative">
+                <div class="flex justify-between mb-4">
+                  <div>
+                    <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide flex items-center gap-2">
+                      <span class="material-icons text-blue-500 text-xl">electrical_services</span>
+                      <span>Feeder Risk Forecast</span>
+                    </h4>
+                    <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Estimated probability of outage within the next 7 days.
+                    </p>
                   </div>
+                  <button onclick="downloadChartAsImage('feederForecastChart', 'feeder_risk_forecast')" 
+                          class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                          title="Download PNG">
+                    <span class="material-icons text-sm">download</span>
+                  </button>
+                </div>
+                <div class="flex items-center justify-between mb-2">
                   <span id="forecastFeederUpdated"
                         class="text-[10px] text-gray-400 uppercase tracking-wide">
                         —
@@ -540,14 +602,24 @@
               </div>
 
               <!-- Barangay Risk Forecast -->
-              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="flex items-center gap-2">
-                    <span class="material-icons text-rose-500 text-xl">location_city</span>
-                    <h5 class="font-semibold text-gray-700 dark:text-gray-200 text-sm uppercase tracking-wide">
-                      Barangay Risk Forecast
-                    </h5>
+              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col group relative">
+                <div class="flex justify-between mb-4">
+                  <div>
+                    <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide flex items-center gap-2">
+                      <span class="material-icons text-rose-500 text-xl">location_city</span>
+                      <span>Barangay Risk Forecast</span>
+                    </h4>
+                    <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Estimated probability of outage within the next 7 days.
+                    </p>
                   </div>
+                  <button onclick="downloadChartAsImage('barangayForecastChart', 'barangay_risk_forecast')" 
+                          class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                          title="Download PNG">
+                    <span class="material-icons text-sm">download</span>
+                  </button>
+                </div>
+                <div class="flex items-center justify-between mb-2">
                   <span id="forecastBarangayUpdated"
                         class="text-[10px] text-gray-400 uppercase tracking-wide">
                         —
@@ -562,14 +634,24 @@
               </div>
 
               <!-- Restoration Likelihood & Text Insights -->
-              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="flex items-center gap-2">
-                    <span class="material-icons text-emerald-500 text-xl">auto_fix_high</span>
-                    <h5 class="font-semibold text-gray-700 dark:text-gray-200 text-sm uppercase tracking-wide">
-                      Restoration Likelihood
-                    </h5>
+              <div class="bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex flex-col group relative">
+                <div class="flex justify-between mb-4">
+                  <div>
+                    <h4 class="font-bold text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide flex items-center gap-2">
+                      <span class="material-icons text-emerald-500 text-xl">auto_fix_high</span>
+                      <span>Restoration Likelihood</span>
+                    </h4>
+                    <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Estimated probability of outage within the next 7 days.
+                    </p>
                   </div>
+                  <button onclick="downloadChartAsImage('restorationForecastChart', 'restoration_forecast')" 
+                          class="flex items-center justify-center w-8 h-8 bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-blue-600 rounded-md transition-all duration-200"
+                          title="Download PNG">
+                    <span class="material-icons text-sm">download</span>
+                  </button>
+                </div>
+                <div class="flex items-center justify-between mb-2">
                   <span id="forecastRestorationUpdated"
                         class="text-[10px] text-gray-400 uppercase tracking-wide">
                         —
@@ -791,6 +873,25 @@
           <span>Download Final Report</span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <div id="reportSelectionModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm hidden items-center justify-center z-[1001]">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 border border-gray-100 dark:border-gray-700">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold text-gray-800 dark:text-white">Configure PDF Report</h3>
+            <button id="closeSelectionBtn" class="text-gray-400 hover:text-gray-600 transition"><span class="material-icons">close</span></button>
+        </div>
+        
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 font-medium">Select sections to include:</p>
+        
+        <div id="selectionList" class="space-y-2 max-h-64 overflow-y-auto mb-6 pr-2 custom-scrollbar">
+            </div>
+
+        <div class="flex gap-3 pt-4 border-t dark:border-gray-700">
+            <button id="selectAllCharts" class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-xl hover:bg-gray-200 transition">Select All</button>
+            <button id="proceedToPreview" class="flex-1 px-4 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition">Generate Report</button>
+        </div>
     </div>
   </div>
 

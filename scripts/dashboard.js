@@ -1816,3 +1816,104 @@ document.addEventListener("DOMContentLoaded", () => {
   // Init
   initDashboard();
 });
+
+window.downloadChartAsImage = async (elementId, filename) => {
+    const targetElement = document.getElementById(elementId);
+    if (!targetElement) return;
+
+    // 1. Context Awareness (same as before)
+    const container = targetElement.closest('.group');
+    const titleEl = container.querySelector('h4');
+    const title = titleEl.querySelector('span:last-child') 
+              ? titleEl.querySelector('span:last-child').innerText 
+              : titleEl.innerText;
+    const subtitle = container.querySelector('p')?.innerText || "";
+
+    const updateTime = container.querySelector('[id^="forecast"][id$="Updated"]')?.innerText || "";
+    const summaryText = container.querySelector('[id$="Summary"]')?.innerText || "";
+    const riskBadgeText = container.querySelector('#overallRiskBadge')?.innerText?.replace('insights', '').trim() || "";
+
+    let sourceCanvas;
+
+    // 2. Logic Branch: Is it a canvas or a div?
+    if (targetElement.tagName.toLowerCase() === 'canvas') {
+        sourceCanvas = targetElement;
+    } else {
+        // Use html2canvas to render the HTML div into a canvas
+        // we set scale: 2 for high-resolution
+        sourceCanvas = await html2canvas(targetElement, {
+            backgroundColor: null, // Keep it transparent so we can apply our own theme background
+            scale: 2,
+            logging: false
+        });
+    }
+
+    // 3. Create the "Export Canvas" (The frame for the final image)
+    const exportCanvas = document.createElement('canvas');
+    const ctx = exportCanvas.getContext('2d');
+
+    const padding = 40;
+    let headerHeight = 80;
+    if (updateTime) {
+      headerHeight = 100;
+    }
+    let footerHeight = 0;
+    if (summaryText && riskBadgeText) {
+      footerHeight = 80;
+    } else if (summaryText || riskBadgeText) {
+      footerHeight = 60;
+    }
+    
+    // Set dimensions based on the source
+    exportCanvas.width = sourceCanvas.width + (padding * 2);
+    exportCanvas.height = sourceCanvas.height + headerHeight + footerHeight;
+
+    // 4. Handle Background (Solid color based on theme)
+    const isDark = document.documentElement.classList.contains('dark');
+    ctx.fillStyle = isDark ? '#1F2937' : '#FFFFFF';
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    // 5. Draw Title
+    ctx.fillStyle = isDark ? '#F3F4F6' : '#111827';
+    ctx.font = 'bold 22px Inter, sans-serif';
+    ctx.fillText(title, padding, 40);
+
+    // 6. Draw Subtitle
+    ctx.fillStyle = isDark ? '#9CA3AF' : '#6B7280';
+    ctx.font = '14px Inter, sans-serif';
+    ctx.fillText(subtitle, padding, 65);
+
+    if (updateTime) {
+      ctx.font = '500 10px Inter, sans-serif';
+      ctx.fillText("DATA UPDATED: " + updateTime, padding, 85);
+    }
+
+    ctx.drawImage(sourceCanvas, padding, headerHeight);
+    const footerY = headerHeight + sourceCanvas.height + 30;
+
+    ctx.fillStyle = isDark ? '#D1D5DB' : '#4B5563';
+    ctx.font = 'italic 12px Inter, sans-serif';
+    // Wrap text helper if summary is long
+    const wrappedSummary = ctx.measureText(summaryText).width > sourceCanvas.width 
+        ? summaryText.substring(0, 80) + "..." 
+        : summaryText;
+    ctx.fillText(wrappedSummary, padding, footerY);
+
+    if (riskBadgeText && riskBadgeText !== "Overall risk: —") {
+        ctx.fillStyle = '#FEF3C7'; // Amber background
+        ctx.roundRect(padding, footerY + 15, 140, 25, 12);
+        ctx.fill();
+        ctx.fillStyle = '#92400E'; // Amber text
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.fillText(riskBadgeText.toUpperCase(), padding + 15, footerY + 32);
+    }
+
+    // 8. Trigger Download
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `BEACON_${filename}_${dateStr}.png`;
+    link.href = exportCanvas.toDataURL('image/png', 1.0);
+    link.click();
+
+    if (window.showSuccessPopup) window.showSuccessPopup("Chart Exported!");
+};
